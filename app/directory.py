@@ -1,15 +1,13 @@
-"""Stub org directory — stands in for a real HRIS/Azure AD group sync until
-Phase 2. Seeded into the org_users table on first startup (see main.py)."""
+"""Stub demo directory — a small, fixed set of demo accounts used only for
+dev/demo login (see app/api/auth.py). Every row here is seeded with
+is_demo=True (see main.py's seed_directory) and is never touched by the
+real Microsoft Graph sync, which only ever syncs real (is_demo=False)
+org_users created by an actual Microsoft login."""
 
 STUB_DIRECTORY = [
-    {"email": "taylor@corp.com", "name": "Taylor Brooks", "title": "VP Engineering", "manager_email": None},
-    {"email": "lead@corp.com", "name": "Jordan Lee", "title": "Engineering Lead", "manager_email": "taylor@corp.com"},
-    {"email": "pm@corp.com", "name": "Priya Menon", "title": "Program Manager", "manager_email": "taylor@corp.com"},
-    {"email": "alice@corp.com", "name": "Alice Chen", "title": "Software Engineer", "manager_email": "lead@corp.com"},
-    {"email": "bob@corp.com", "name": "Bob Rutherford", "title": "Software Engineer", "manager_email": "lead@corp.com"},
-    {"email": "carol@corp.com", "name": "Carol Nkemelu", "title": "Software Engineer", "manager_email": "lead@corp.com"},
-    {"email": "dave@corp.com", "name": "Dave Osei", "title": "Support Engineer", "manager_email": "pm@corp.com"},
-    {"email": "erin@corp.com", "name": "Erin Walsh", "title": "QA Engineer", "manager_email": "pm@corp.com"},
+    {"email": "ava.martinez@corp.com", "name": "Ava Martinez", "title": "Engineering Manager", "manager_email": None},
+    {"email": "daniel.kim@corp.com", "name": "Daniel Kim", "title": "Senior Software Engineer", "manager_email": "ava.martinez@corp.com"},
+    {"email": "sofia.rossi@corp.com", "name": "Sofia Rossi", "title": "Software Engineer", "manager_email": "ava.martinez@corp.com"},
 ]
 
 

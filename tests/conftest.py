@@ -14,6 +14,11 @@ from app.models import OrgUser
 # data lives in — the fixture below drops/recreates its tables every run.
 _TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/meeting_compliance_test"
 
+# The startup index warm-up opens its own SessionLocal session, i.e. the DEV
+# database, not the per-test one — in tests it would embed dev data with the
+# tests' fake embeddings and write those vectors into the dev cache.
+settings.assistant_warm_index = False
+
 
 def _ensure_test_database_exists() -> None:
     admin_engine = create_engine(settings.database_url.rsplit("/", 1)[0] + "/postgres")
@@ -44,7 +49,7 @@ def db_session(engine):
     session = Session()
 
     for entry in STUB_DIRECTORY:
-        session.add(OrgUser(**entry))
+        session.add(OrgUser(**entry, is_demo=True))
     session.commit()
 
     yield session
@@ -59,10 +64,16 @@ def client(db_session):
     def _get_db_override():
         yield db_session
 
+    # Dev-login tests exercise demo login regardless of what the developer's
+    # own .env has it set to — tests shouldn't depend on that.
+    original_enable_demo_login = settings.enable_demo_login
+    settings.enable_demo_login = True
+
     app.dependency_overrides[get_db] = _get_db_override
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+    settings.enable_demo_login = original_enable_demo_login
 
 
 def login_as(client: TestClient, email: str) -> None:

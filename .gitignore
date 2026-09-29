@@ -6,3 +6,7 @@ __pycache__/
 server.log
 .venv/
 venv/
+
+# Frontend (app/static/ holds the built output, which *is* committed —
+# see README — so the app runs with no Node toolchain on the target box)
+frontend/node_modules/

@@ -21,6 +21,11 @@ class OrgUser(Base):
     manager_email: Mapped[str | None] = mapped_column(
         ForeignKey("org_users.email"), nullable=True
     )
+    # True for the fixed demo accounts (app/directory.py). Demo accounts are
+    # always backed by the static seeded dataset and are the only accounts
+    # dev-login will accept; real accounts (created by an actual Microsoft
+    # login) are the only ones the Graph sync loop ever touches.
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class MeetingSeries(Base):

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -65,3 +67,23 @@ def sync_occurrence(db: Session, provider: TeamsProvider, occurrence: MeetingOcc
     db.commit()
     db.refresh(db_occurrence)
     return db_occurrence
+
+
+def sync_organizer(db: Session, provider: TeamsProvider, organizer_upn: str, start: datetime, end: datetime) -> int:
+    """Discover everything `organizer_upn` organizes in [start, end) and sync
+    every occurrence found. Returns how many occurrences were synced.
+
+    Needs a provider that implements `discover_series` (GraphTeamsProvider) —
+    MockTeamsProvider callers already know their series ids up front via
+    `define_series`, so they call `sync_occurrence` directly instead.
+    """
+    discover_series = getattr(provider, "discover_series", None)
+    if discover_series is None:
+        raise NotImplementedError(f"{type(provider).__name__} does not support discovery")
+
+    synced = 0
+    for series_id in discover_series(organizer_upn, start, end):
+        for occurrence in provider.get_occurrences(series_id, start, end):
+            sync_occurrence(db, provider, occurrence)
+            synced += 1
+    return synced

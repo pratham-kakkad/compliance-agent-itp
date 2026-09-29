@@ -1,0 +1,15 @@
+# Backend build context (repo root). The frontend has its own context
+# (frontend/) and its own .dockerignore.
+.git
+.env
+.claude
+.vscode
+frontend
+brand
+tests
+**/__pycache__
+**/*.pyc
+*.egg-info
+# The committed SPA build is for running the backend on the host; in Docker
+# the frontend service serves the UI.
+app/static

@@ -1,6 +1,6 @@
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,7 @@ from app.auth.session import COOKIE_NAME, MAX_AGE_SECONDS, create_session_cookie
 from app.config import settings
 from app.database import get_db
 from app.models import OrgUser
+from app.teams_sync import sync_one_organizer
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -19,7 +20,7 @@ _oauth_states: set[str] = set()  # single-process CSRF-state store; fine for a p
 @router.get("/config")
 def auth_config():
     return {
-        "mode": settings.auth_mode,
+        "demo_login_enabled": settings.enable_demo_login,
         "microsoft_configured": microsoft_oauth.is_configured(),
     }
 
@@ -27,22 +28,26 @@ def auth_config():
 @router.get("/dev-login-directory")
 def dev_login_directory(db: Session = Depends(get_db)):
     """Unauthenticated on purpose — the login screen needs a roster to pick
-    from before any session exists. Only responds when AUTH_MODE=dev."""
-    if settings.auth_mode != "dev":
-        raise HTTPException(status_code=403, detail="Dev login is disabled")
+    from before any session exists. Only ever lists demo accounts, and only
+    responds while demo login is enabled."""
+    if not settings.enable_demo_login:
+        raise HTTPException(status_code=403, detail="Demo login is disabled")
     return [
         {"email": u.email, "name": u.name, "title": u.title}
-        for u in db.query(OrgUser).all()
+        for u in db.query(OrgUser).filter(OrgUser.is_demo.is_(True)).all()
     ]
 
 
 @router.get("/dev-login")
 def dev_login(email: str, db: Session = Depends(get_db)):
-    if settings.auth_mode != "dev":
-        raise HTTPException(status_code=403, detail="Dev login is disabled (AUTH_MODE is not 'dev')")
+    if not settings.enable_demo_login:
+        raise HTTPException(status_code=403, detail="Demo login is disabled (ENABLE_DEMO_LOGIN is false)")
     user = db.get(OrgUser, email)
-    if user is None:
-        raise HTTPException(status_code=404, detail=f"No such user in directory: {email}")
+    if user is None or not user.is_demo:
+        # Deliberately the same 404 whether the email doesn't exist at all
+        # or belongs to a real (non-demo) account — dev-login must never
+        # double as a password-free way to sign in as a real person.
+        raise HTTPException(status_code=404, detail=f"No such demo account: {email}")
     response = RedirectResponse(url="/ui/")
     response.set_cookie(
         COOKIE_NAME, create_session_cookie(email), max_age=MAX_AGE_SECONDS, httponly=True
@@ -63,7 +68,7 @@ def login():
 
 
 @router.get("/callback")
-def callback(code: str, state: str, db: Session = Depends(get_db)):
+def callback(code: str, state: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     if state not in _oauth_states:
         raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
     _oauth_states.discard(state)
@@ -77,9 +82,13 @@ def callback(code: str, state: str, db: Session = Depends(get_db)):
     user = db.get(OrgUser, email)
     if user is None:
         claims = token_result.get("id_token_claims", {})
-        user = OrgUser(email=email, name=claims.get("name", email), title="", manager_email=None)
+        user = OrgUser(email=email, name=claims.get("name", email), title="", manager_email=None, is_demo=False)
         db.add(user)
         db.commit()
+
+    # Sync this person's real calendar right away so they don't have to wait
+    # for the next scheduled cycle to see any data after signing in.
+    background_tasks.add_task(sync_one_organizer, email)
 
     response = RedirectResponse(url="/ui/")
     response.set_cookie(
@@ -96,4 +105,10 @@ def logout(response: Response):
 
 @router.get("/me")
 def me(user: OrgUser = Depends(get_current_user)):
-    return {"email": user.email, "name": user.name, "title": user.title, "manager_email": user.manager_email}
+    return {
+        "email": user.email,
+        "name": user.name,
+        "title": user.title,
+        "manager_email": user.manager_email,
+        "is_demo": user.is_demo,
+    }

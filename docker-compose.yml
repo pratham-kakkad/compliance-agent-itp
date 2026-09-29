@@ -10,6 +10,46 @@ services:
       - "5433:5432"
     volumes:
       - meeting_compliance_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meetingcompliance -d meeting_compliance"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # FastAPI API only. Not published on the host: everything goes through the
+  # frontend's nginx on :8010, which keeps a single origin for the session
+  # cookie and the Microsoft sign-in callback.
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: meeting-compliance-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Inside the compose network the DB is reachable as `db:5432`, not the
+      # host-mapped 127.0.0.1:5433 from .env (that's for running the backend
+      # directly on the host instead of in this container).
+      DATABASE_URL: postgresql+psycopg2://meetingcompliance:meetingcompliance@db:5432/meeting_compliance
+      # Set to "false" to skip seeding demo data on every container start.
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+    expose:
+      - "8010"
+
+  # nginx serving the built SPA at /ui/ and proxying every other path to the
+  # backend. This is the one public entry point: http://localhost:8010
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: meeting-compliance-frontend
+    depends_on:
+      - backend
+    ports:
+      - "8010:80"
 
 volumes:
   meeting_compliance_data:

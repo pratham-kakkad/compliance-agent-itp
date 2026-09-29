@@ -1,0 +1,19 @@
+# Debug overlay — adds a debugpy listener to the `backend` container without
+# touching the normal docker-compose.yml. Use with:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d --build
+#
+# The backend blocks on startup (after migrations/seeding) until VS Code's
+# "Docker: Attach" launch config connects on port 5678 — see .vscode/launch.json.
+# The UI is still at http://localhost:8010 (the frontend service); it answers
+# API calls with 502 until the debugger has attached.
+services:
+  backend:
+    environment:
+      DEBUGPY: "true"
+    ports:
+      - "5678:5678"
+    volumes:
+      # Live-mount the source so breakpoints match the files you're editing
+      # exactly, with no image rebuild needed between debug runs.
+      - ./app:/app/app

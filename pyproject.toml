@@ -1,7 +1,7 @@
 [project]
-name = "meeting-compliance"
-version = "0.1.0"
-description = "Standalone Teams meeting attendance & compliance dashboard"
+name = "compliance-hub"
+version = "0.2.0"
+description = "Intuitive Compliance Hub — a general compliance platform with pluggable agents (Meetings, Attendance, ...)"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi",
@@ -15,11 +15,21 @@ dependencies = [
     "httpx",
     "msal",
     "itsdangerous",
-    "anthropic",
+    "openpyxl",
+    "python-multipart",
+    "python-dateutil",
+    # Chat assistant: LangChain agent on Groq + HuggingFace embeddings (app/chat/)
+    "langchain-core>=1.0",
+    "langchain-groq>=1.0",
+    "langchain-huggingface>=1.0",
+    "numpy",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "debugpy"]
+# EMBEDDINGS_MODE=local: run the embedding model on this machine instead of
+# the HuggingFace Inference API (pulls in torch — large).
+local-embeddings = ["sentence-transformers"]
 
 [tool.pytest.ini_options]
 addopts = "-p no:cacheprovider"
