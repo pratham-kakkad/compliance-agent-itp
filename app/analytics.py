@@ -7,6 +7,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.models import Attendance, MeetingOccurrence, MeetingSeries, OrgUser
+from app.org_settings.service import get_timezone_name
 
 
 def _rate(attended: int, total: int) -> float | None:
@@ -126,10 +127,14 @@ def top_members_to_focus(db: Session, emails: list[str] | None = None, limit: in
 
 def attendance_trend(db: Session, emails: list[str], weeks: int = 6) -> list[dict]:
     """Weekly required-attendance rate for the given scope, oldest first —
-    powers the dashboard's trend chart."""
+    powers the dashboard's trend chart. Weeks (Monday start) are taken in
+    the organization time zone, not the database session's zone."""
     if not emails:
         return []
-    week = func.date_trunc("week", MeetingOccurrence.start_time).label("week")
+    tz_name = get_timezone_name(db)
+    # timezone(zone, timestamptz) is the wall-clock time in `zone` (a naive
+    # timestamp), so the week is truncated on local dates.
+    week = func.date_trunc("week", func.timezone(tz_name, MeetingOccurrence.start_time)).label("week")
     rows = db.execute(
         select(
             week,

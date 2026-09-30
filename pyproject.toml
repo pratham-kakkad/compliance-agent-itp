@@ -18,6 +18,8 @@ dependencies = [
     "openpyxl",
     "python-multipart",
     "python-dateutil",
+    # IANA time zone data for zoneinfo (Windows and slim Docker images ship none)
+    "tzdata",
     # Chat assistant: LangChain agent on Groq + HuggingFace embeddings (app/chat/)
     "langchain-core>=1.0",
     "langchain-groq>=1.0",

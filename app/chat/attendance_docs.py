@@ -8,19 +8,22 @@ Four document types, each with a stable id and metadata["type"]:
 - "date"       — one per tracked date in the window: who had a punch that day
 
 Texts stay short (well under ~500 characters) and carry both ISO and
-DD-MM-YYYY dates, since that's how the punch-log exports write them. Punch
-times are formatted straight from the stored value (the device clock as
-imported) — no timezone conversion. Plain presence only: no hours.
+DD-MM-YYYY dates, since that's how the punch-log exports write them. Punches
+are stored in UTC; every time here is converted to the organization time
+zone (app/org_settings/service.py), the same zone the days are dated in.
+Plain presence only: no hours.
 """
+import statistics
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, tzinfo
 
 from langchain_core.documents import Document
-from sqlalchemy import Time, case, cast, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.attendance.models import AttendanceDay, AttendanceEmployee, ImportBatch
+from app.org_settings.service import get_timezone, get_timezone_name, to_local
 
 UNASSIGNED = "Unassigned"
 MAX_NAMES = 40
@@ -39,8 +42,13 @@ def long_date(d: date) -> str:
     return f"{d:%A} {d.day} {d:%B %Y} ({d.isoformat()}, {d:%d-%m-%Y})"
 
 
-def hhmm(value: datetime | time | None) -> str:
-    return value.strftime("%H:%M") if value is not None else "unknown"
+def hhmm(value: datetime | time | None, tz: tzinfo | None = None) -> str:
+    """HH:MM of a time of day, or of a stored (UTC) punch in `tz`."""
+    if value is None:
+        return "unknown"
+    if isinstance(value, datetime) and tz is not None:
+        value = to_local(value, tz)
+    return value.strftime("%H:%M")
 
 
 def short_date(d: date) -> str:
@@ -77,25 +85,40 @@ class _EmployeeStats:
     median_last: time | None = None
 
 
-def _employee_stats(db: Session) -> dict[str, _EmployeeStats]:
-    """All-time per-employee aggregates in one query. Medians are
-    percentile_disc over the time-of-day of each punch (Postgres casts in
-    the session time zone — the same one the ORM hands datetimes back in)."""
+def _employee_stats(db: Session, tz: tzinfo) -> dict[str, _EmployeeStats]:
+    """All-time per-employee aggregates from one query. Medians are the
+    lower median of each punch's time of day in the organization zone
+    (what percentile_disc(0.5) gives), computed here rather than in SQL so
+    the zone conversion is Python's zoneinfo, whatever zone data the
+    database server has."""
     rows = db.execute(
         select(
             AttendanceDay.emp_code,
-            func.count().label("days"),
-            func.min(AttendanceDay.work_date).label("first"),
-            func.max(AttendanceDay.work_date).label("last"),
-            func.sum(case((AttendanceDay.punch_count == 1, 1), else_=0)).label("single"),
-            func.percentile_disc(0.5).within_group(cast(AttendanceDay.first_punch, Time)).label("median_first"),
-            func.percentile_disc(0.5).within_group(cast(AttendanceDay.last_punch, Time)).label("median_last"),
-        ).group_by(AttendanceDay.emp_code)
-    ).all()
-    return {
-        r.emp_code: _EmployeeStats(r.days, r.first, r.last, int(r.single or 0), r.median_first, r.median_last)
-        for r in rows
-    }
+            AttendanceDay.work_date,
+            AttendanceDay.punch_count,
+            AttendanceDay.first_punch,
+            AttendanceDay.last_punch,
+        )
+    )
+    stats: dict[str, _EmployeeStats] = {}
+    firsts: dict[str, list[time]] = defaultdict(list)
+    lasts: dict[str, list[time]] = defaultdict(list)
+    for r in rows:
+        s = stats.get(r.emp_code)
+        if s is None:
+            s = stats[r.emp_code] = _EmployeeStats(first=r.work_date, last=r.work_date)
+        s.days += 1
+        s.first = min(s.first, r.work_date)
+        s.last = max(s.last, r.work_date)
+        s.single_punch_days += 1 if r.punch_count == 1 else 0
+        if r.first_punch is not None:
+            firsts[r.emp_code].append(to_local(r.first_punch, tz).time())
+        if r.last_punch is not None:
+            lasts[r.emp_code].append(to_local(r.last_punch, tz).time())
+    for code, s in stats.items():
+        s.median_first = statistics.median_low(firsts[code]) if firsts[code] else None
+        s.median_last = statistics.median_low(lasts[code]) if lasts[code] else None
+    return stats
 
 
 def _employee_doc(emp: AttendanceEmployee, stats: _EmployeeStats | None) -> Document:
@@ -124,12 +147,12 @@ def _employee_doc(emp: AttendanceEmployee, stats: _EmployeeStats | None) -> Docu
     )
 
 
-def _day_doc(row) -> Document:
+def _day_doc(row, tz: tzinfo) -> Document:
     company, department = label(row.company), label(row.department)
     iso = row.work_date.isoformat()
     text = (
         f"{row.name} ({row.emp_code}, {company}, {department}) was present on {long_date(row.work_date)}: "
-        f"first punch {hhmm(row.first_punch)}, last punch {hhmm(row.last_punch)}, "
+        f"first punch {hhmm(row.first_punch, tz)}, last punch {hhmm(row.last_punch, tz)}, "
         f"{plural(row.punch_count or 0, 'punch')}."
     )
     return Document(
@@ -146,10 +169,14 @@ def _day_doc(row) -> Document:
     )
 
 
-def build_attendance_documents(db: Session, today: date, index_days: int) -> list[Document]:
-    """Three queries in total: roster, per-employee aggregates, window days."""
+def build_attendance_documents(
+    db: Session, today: date, index_days: int, tz: tzinfo | None = None
+) -> list[Document]:
+    """Three queries in total: roster, per-employee aggregates, window days.
+    Times are shown in `tz` (default: the organization zone)."""
+    tz = tz or get_timezone(db)
     employees = db.execute(select(AttendanceEmployee).order_by(AttendanceEmployee.name)).scalars().all()
-    stats = _employee_stats(db)
+    stats = _employee_stats(db, tz)
 
     since = today - timedelta(days=max(0, index_days))
     window_rows = db.execute(
@@ -169,7 +196,7 @@ def build_attendance_documents(db: Session, today: date, index_days: int) -> lis
     ).all()
 
     docs: list[Document] = [_employee_doc(emp, stats.get(emp.emp_code)) for emp in employees]
-    docs.extend(_day_doc(row) for row in window_rows)
+    docs.extend(_day_doc(row, tz) for row in window_rows)
 
     # Department docs, from the roster + all-time stats already loaded.
     departments: dict[tuple[str, str], list[AttendanceEmployee]] = defaultdict(list)
@@ -222,7 +249,9 @@ def build_attendance_documents(db: Session, today: date, index_days: int) -> lis
 
 def attendance_fingerprint(db: Session) -> tuple:
     """Cheap aggregates that change whenever an import (or any edit) changes
-    what build_attendance_documents would produce. One round trip."""
+    what build_attendance_documents would produce — including the
+    organization time zone, which every time in the texts is shown in. One
+    round trip plus the (identity-mapped) zone setting."""
     row = db.execute(
         select(
             select(func.count()).select_from(AttendanceEmployee).scalar_subquery(),
@@ -235,4 +264,4 @@ def attendance_fingerprint(db: Session) -> tuple:
             select(func.max(ImportBatch.imported_at)).scalar_subquery(),
         )
     ).one()
-    return tuple(row)
+    return (*tuple(row), get_timezone_name(db))

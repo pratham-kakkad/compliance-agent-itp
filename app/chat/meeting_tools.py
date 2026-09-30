@@ -1,9 +1,12 @@
-"""The assistant's Teams-meeting tools, ported unchanged from the original
-agent. Every tool re-derives the same visible-emails scope the REST
-endpoints use (access.visible_emails: the viewer and everyone reporting to
-them), so the assistant can't be asked to leak another manager's team data
-— it has no meeting tool that reaches outside that scope.
+"""The assistant's Teams-meeting tools, ported from the original agent.
+Every tool re-derives the same visible-emails scope the REST endpoints use
+(access.visible_emails: the viewer and everyone reporting to them), so the
+assistant can't be asked to leak another manager's team data — it has no
+meeting tool that reaches outside that scope. Meeting timestamps are given
+in the organization time zone, like every time the assistant sees.
 """
+from datetime import datetime, tzinfo
+
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -11,6 +14,30 @@ from sqlalchemy.orm import Session
 from app import access, analytics
 from app.chat.tool_utils import make_tool
 from app.models import MeetingSeries, OrgUser
+from app.org_settings.service import get_timezone, to_local
+
+_OCCURRENCE_TIMES = ("start_time", "end_time")
+_ATTENDANCE_TIMES = ("joined_at", "left_at")
+
+
+def _local_iso(value, tz: tzinfo):
+    """An ISO timestamp from the meetings API re-expressed in `tz` (same instant)."""
+    if not isinstance(value, str) or not value:
+        return value
+    try:
+        return to_local(datetime.fromisoformat(value), tz).isoformat()
+    except ValueError:
+        return value
+
+
+def _localize_meeting_detail(detail: dict, tz: tzinfo) -> dict:
+    for occ in detail.get("occurrences") or []:
+        for key in _OCCURRENCE_TIMES:
+            occ[key] = _local_iso(occ.get(key), tz)
+        for attendance in occ.get("attendances") or []:
+            for key in _ATTENDANCE_TIMES:
+                attendance[key] = _local_iso(attendance.get(key), tz)
+    return detail
 
 
 class _NoArgs(BaseModel):
@@ -61,7 +88,7 @@ def build_meeting_tools(db: Session, viewer: OrgUser) -> list[BaseTool]:
             return {"error": f"No meeting series matching '{title}'"}
         from app.api.meetings import meeting_detail  # local import avoids a circular import at module load
 
-        return meeting_detail(str(series.id), db=db, user=viewer)
+        return _localize_meeting_detail(meeting_detail(str(series.id), db=db, user=viewer), get_timezone(db))
 
     return [
         make_tool(

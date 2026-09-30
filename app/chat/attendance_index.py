@@ -1,9 +1,11 @@
 """Process-wide in-memory vector index over the attendance documents.
 
 The index is rebuilt lazily (on the next search) whenever it could be
-stale: attendance data changed (fingerprint), invalidate() was called
-(an import just finished, or POST /chat/reindex), the date changed (the
-per-day window is relative to today), or the embedding model changed.
+stale: attendance data or the organization time zone changed
+(fingerprint), invalidate() was called (an import just finished, the zone
+was changed in Settings, or POST /chat/reindex), the date changed in the
+organization zone (the per-day window is relative to today), or the
+embedding model changed.
 Rebuilds are cheap after the first: CachedEmbeddings only sends texts
 HuggingFace hasn't embedded before. A failed build is remembered for
 FAILURE_BACKOFF_SECONDS so a broken token/network doesn't make every chat
@@ -23,6 +25,7 @@ from app.chat import embeddings as embeddings_module
 from app.chat.attendance_docs import attendance_fingerprint, build_attendance_documents
 from app.chat.embeddings import CachedEmbeddings, EmbeddingsNotConfigured, embedding_namespace, redact_secrets
 from app.config import settings
+from app.org_settings.service import org_today
 
 logger = logging.getLogger("app.chat")
 
@@ -113,7 +116,7 @@ class AttendanceIndex:
             raise IndexUnavailable(BUILD_IN_PROGRESS)
         try:
             namespace = embedding_namespace()
-            today = date.today()
+            today = org_today(db)
             generation = self._generation
             fingerprint = attendance_fingerprint(db)
 

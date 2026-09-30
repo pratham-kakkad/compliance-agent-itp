@@ -7,6 +7,7 @@ from app.config import settings
 from app.models import Base  # noqa: F401 -- registers all model metadata
 import app.attendance.models  # noqa: F401 -- registers the Attendance agent's tables too
 import app.chat.models  # noqa: F401 -- registers the chat assistant's embedding cache
+import app.org_settings.models  # noqa: F401 -- registers the organization settings table
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

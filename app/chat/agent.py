@@ -29,6 +29,7 @@ from app.chat.embeddings import redact_secrets
 from app.chat.llm import MalformedToolCall, build_chat_model, invoke_chat_model, model_name_of
 from app.chat.meeting_tools import build_meeting_tools
 from app.models import OrgUser
+from app.org_settings.service import get_timezone_name, org_today, utc_offset_label
 
 logger = logging.getLogger("app.chat")
 
@@ -68,14 +69,15 @@ def truncate(text: str, limit: int) -> str:
     return text[: max(0, limit - len(TRUNCATED))] + TRUNCATED
 
 
-def system_prompt(viewer: OrgUser, today: date) -> str:
+def system_prompt(viewer: OrgUser, today: date, timezone_name: str = "UTC") -> str:
     today_text = f"{today:%A} {today.day} {today:%B %Y} ({today.isoformat()}, {today:%d-%m-%Y})"
+    zone_text = f"{timezone_name} (UTC{utc_offset_label(timezone_name)})"
     return f"""You are the Intuitive Compliance Hub assistant. Your main job is answering questions about biometric attendance: punch data imported from the office biometric device. You can also answer questions about Teams meeting attendance with the meeting tools.
 
-Today is {today_text}. Turn relative dates such as "today", "yesterday", "last week" or "this month" into explicit dates before calling tools (weeks start on Monday). You are talking to {viewer.name} ({viewer.email}).
+Today is {today_text} in the organization's time zone, {zone_text}. All dates and times in the tool results and in your answers are in that time zone: attendance days are calendar days there and punch times are local times there. Say so if the user asks which time zone is used. Turn relative dates such as "today", "yesterday", "last week" or "this month" into explicit dates before calling tools (weeks start on Monday). You are talking to {viewer.name} ({viewer.email}).
 
 How the attendance data works:
-- An employee has an attendance day only when the device recorded at least one punch for them that day. Each day has the first punch time, the last punch time and the number of punches. Punch times are the device clock as imported.
+- An employee has an attendance day only when the device recorded at least one punch for them that day. Each day has the first punch time, the last punch time and the number of punches.
 - The device marks punches Entry or Exit, but that marker is recorded and not interpreted, so first and last punch are not verified check-in and check-out times.
 - There are no worked hours. Never compute, estimate or state hours worked, durations, time in office or overtime, even if asked; explain that only first and last punch times are tracked.
 - There is no shift roster, so nobody is known to be expected on a given day. Say "no punch recorded", never "absent", and don't call anyone late or early against a schedule. Comparing people by their punch times (for example "earliest median first punch") is fine.
@@ -280,13 +282,14 @@ def answer(
 ) -> str:
     model = chat_model if chat_model is not None else build_chat_model()
     model_name = model_name_of(model)
-    today = today or date.today()
+    today = today or org_today(db)
+    timezone_name = get_timezone_name(db)
 
     tools = build_attendance_tools(db, today=today) + build_meeting_tools(db, viewer)
     tools_by_name = {t.name: t for t in tools}
     bound = model.bind_tools(tools)
 
-    system = SystemMessage(content=system_prompt(viewer, today))
+    system = SystemMessage(content=system_prompt(viewer, today, timezone_name))
     past = convert_history(history)
     question = truncate(message or "", MAX_MESSAGE_CHARS)
     messages: list[BaseMessage] = [system, *past, HumanMessage(content=question)]

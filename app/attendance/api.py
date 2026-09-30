@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.attendance import analytics
@@ -6,6 +6,7 @@ from app.attendance.importer import import_punch_log
 from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.models import OrgUser
+from app.org_settings.service import get_timezone_name, validate_timezone
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 
@@ -13,14 +14,23 @@ router = APIRouter(prefix="/attendance", tags=["attendance"])
 @router.post("/import")
 async def import_punches(
     file: UploadFile,
+    # The IANA zone the file's times are in (multipart field "timezone");
+    # empty = the organization zone.
+    timezone: str | None = Form(default=None),
     db: Session = Depends(get_db),
     user: OrgUser = Depends(get_current_user),
 ):
     if not file.filename or not file.filename.lower().endswith((".csv", ".xlsx", ".xlsm")):
         raise HTTPException(status_code=400, detail="Upload a .csv or .xlsx punch-log export")
+    source_timezone = None
+    if timezone is not None and timezone.strip():
+        try:
+            source_timezone = validate_timezone(timezone)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
     raw = await file.read()
-    result = import_punch_log(db, file.filename, raw, imported_by=user.email)
+    result = import_punch_log(db, file.filename, raw, imported_by=user.email, source_timezone=source_timezone)
     if result.batch_id:
         # New punches -> the assistant's search index is stale. Imported here
         # rather than at module top so the Attendance agent doesn't depend on
@@ -34,6 +44,10 @@ async def import_punches(
         "accepted": result.accepted,
         "employees_affected": result.employees_affected,
         "rejected": [{"row": r.row_number, "reason": r.reason} for r in result.rejected],
+        "source_timezone": result.source_timezone,
+        # The organization zone the punches were assigned to days in (read
+        # under the import's zone lock, so it's the zone actually used).
+        "timezone": result.timezone or get_timezone_name(db),
     }
 
 

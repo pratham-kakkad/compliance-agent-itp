@@ -18,6 +18,8 @@ export default defineConfig({
       "/directory": "http://localhost:8010",
       "/chat": "http://localhost:8010",
       "/attendance": "http://localhost:8010",
+      // Matches only paths starting /settings; the SPA route is /ui/settings.
+      "/settings": "http://localhost:8010",
     },
   },
   build: {

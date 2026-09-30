@@ -1,4 +1,4 @@
-import { CalendarClock, Fingerprint, LayoutDashboard, Network, Sparkles, UploadCloud, Users, type LucideIcon } from "lucide-react";
+import { CalendarClock, Fingerprint, LayoutDashboard, Network, Settings, Sparkles, UploadCloud, Users, type LucideIcon } from "lucide-react";
 
 export interface NavItem {
   to: string;
@@ -37,11 +37,14 @@ export const NAV: NavSection[] = [
   },
 ];
 
-/** Cross-agent tools pinned to the bottom of the sidebar, just above the collapse control. */
+/** Cross-agent tools and app settings, pinned to the bottom of the sidebar just above the collapse control. */
 export const NAV_FOOTER: NavSection = {
   id: "footer",
   paletteLabel: "Tools",
-  items: [{ to: "/assistant", label: "Assistant", icon: Sparkles }],
+  items: [
+    { to: "/assistant", label: "Assistant", icon: Sparkles },
+    { to: "/settings", label: "Settings", icon: Settings },
+  ],
 };
 
 /** Every nav section, top groups first — for the breadcrumb, document title and command palette. */

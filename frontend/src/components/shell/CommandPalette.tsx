@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Command } from "cmdk";
-import { CornerDownLeft, LogOut, MoonStar, Search, Sparkles, Sun, UploadCloud } from "lucide-react";
+import { CornerDownLeft, Earth, LogOut, MoonStar, Search, Sparkles, Sun, UploadCloud } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { useTheme } from "../../lib/useTheme";
 import { usePersonModal } from "../PersonModal";
@@ -103,6 +103,10 @@ export function CommandPalette() {
           <Command.Item value="action import punch logs upload" onSelect={() => run(() => navigate("/attendance/import"))} className={itemCls}>
             <UploadCloud size={16} className="text-ink2" />
             <span className="flex-1">Import punch logs</span>
+          </Command.Item>
+          <Command.Item value="action change time zone timezone settings" onSelect={() => run(() => navigate("/settings"))} className={itemCls}>
+            <Earth size={16} className="text-ink2" />
+            <span className="flex-1">Change time zone</span>
           </Command.Item>
           <Command.Item value="action sign out logout" onSelect={() => run(() => logout())} className={itemCls}>
             <LogOut size={16} className="text-ink2" />

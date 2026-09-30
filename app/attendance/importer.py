@@ -6,6 +6,11 @@ Expected columns (case-insensitive, order-independent):
 Log Date, Device, Emp Code, Name, Company, Department
 
 Log Date arrives as DD-MM-YYYY plus Hr:Min, so it's parsed day-first.
+Device exports carry wall-clock times with no zone, so the uploader says
+which zone the file is in (default: the organization zone); naive times are
+read in that zone and stored as UTC instants. A value that carries its own
+offset ("...+05:30", "...Z") keeps it. The zone used is recorded on the
+ImportBatch. Each punch counts for its date in the organization zone.
 Device carries a raw Entry/Exit marker — stored as-is but not used for any
 in/out or duration logic in this pass. Any other columns the export
 includes (Category, Status, EmploymentType, ...) are ignored rather than
@@ -14,14 +19,16 @@ rejected, so they can be present or absent without affecting the import.
 import csv
 import io
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, timezone, tzinfo
+from zoneinfo import ZoneInfo
 
 from dateutil import parser as date_parser
 from openpyxl import load_workbook
 from sqlalchemy.orm import Session
 
 from app.attendance.models import AttendanceEmployee, BiometricPunchLog, ImportBatch
-from app.attendance.rules import recompute_days
+from app.attendance.rules import local_work_date, recompute_days
+from app.org_settings.service import get_timezone_name, lock_zone_shared, validate_timezone
 
 REQUIRED_COLUMNS = ["log_date", "emp_code", "name"]
 _COLUMN_ALIASES = {
@@ -48,6 +55,10 @@ class ImportResult:
     accepted: int
     rejected: list[RejectedRow] = field(default_factory=list)
     employees_affected: int = 0
+    # The zone naive Log Date values were read in.
+    source_timezone: str = ""
+    # The organization zone the punches were assigned to days in.
+    timezone: str = ""
 
 
 def _normalize_header(raw_headers: list) -> dict[int, str]:
@@ -80,38 +91,107 @@ def _rows_from_xlsx(raw: bytes) -> tuple[list, list[list]]:
     return rows[0], rows[1:]
 
 
-def _parse_log_date(value) -> datetime | None:
+def _parse_log_date(value, source_tz: tzinfo) -> datetime | None:
     """Log Date is DD-MM-YYYY plus Hr:Min — parse day-first so e.g.
-    03-04-2026 comes out as 3 April, not 4 March."""
+    03-04-2026 comes out as 3 April, not 4 March. Returns an aware UTC
+    datetime: a value without an offset (CSV text, or an xlsx datetime
+    cell) is wall-clock time in `source_tz` (fold=0, i.e. the first
+    occurrence, for a time a DST change makes ambiguous)."""
     if value is None or value == "":
         return None
-    if isinstance(value, datetime):
-        return value
     try:
-        return date_parser.parse(str(value), dayfirst=True)
+        if isinstance(value, datetime):
+            parsed = value
+        else:
+            text = str(value).strip()
+            # ISO 8601 ("2026-09-05T09:02:00+05:30") is year-month-day; read
+            # day-first it would come out as 9 May.
+            iso_like = len(text) >= 5 and text[:4].isdigit() and text[4] == "-"
+            parsed = date_parser.parse(text, dayfirst=not iso_like)
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            parsed = parsed.replace(tzinfo=source_tz, fold=0)
+        return parsed.astimezone(timezone.utc)
     except (ValueError, OverflowError):
         return None
 
 
-def import_punch_log(db: Session, filename: str, raw: bytes, imported_by: str) -> ImportResult:
+def import_punch_log(
+    db: Session, filename: str, raw: bytes, imported_by: str, source_timezone: str | None = None
+) -> ImportResult:
+    """source_timezone: the IANA zone the file's times are in; None/blank =
+    the organization zone. An unknown zone raises ValueError before
+    anything is read or written.
+
+    One transaction, all or nothing: the batch, its punches, the roster and
+    the recomputed days commit together (a failure rolls back every punch,
+    so retrying the upload can't double them). It runs under the shared
+    zone lock (app/org_settings/service.py), so the org zone the days are
+    dated in can't change between reading it and committing."""
+    if source_timezone is None or not str(source_timezone).strip():
+        explicit_zone = None
+    else:
+        explicit_zone = validate_timezone(source_timezone)
+
     is_xlsx = filename.lower().endswith((".xlsx", ".xlsm"))
     header, data_rows = _rows_from_xlsx(raw) if is_xlsx else _rows_from_csv(raw)
     column_map = _normalize_header(header)
 
-    result = ImportResult(batch_id="", row_count=len(data_rows), accepted=0)
     missing = [c for c in REQUIRED_COLUMNS if c not in column_map.values()]
-    if missing:
+    if missing:  # nothing is written, so no lock is needed
+        org_zone_name = get_timezone_name(db)
+        result = ImportResult(
+            batch_id="",
+            row_count=len(data_rows),
+            accepted=0,
+            source_timezone=explicit_zone or org_zone_name,
+            timezone=org_zone_name,
+        )
         result.rejected.append(
             RejectedRow(row_number=0, reason=f"Missing required column(s): {', '.join(missing)}")
         )
         return result
 
-    batch = ImportBatch(filename=filename, imported_by=imported_by, row_count=len(data_rows))
+    try:
+        lock_zone_shared(db)  # before reading the org zone; held until the commit below
+        org_zone_name = get_timezone_name(db)
+        source_zone_name = explicit_zone or org_zone_name
+        result = ImportResult(
+            batch_id="",
+            row_count=len(data_rows),
+            accepted=0,
+            source_timezone=source_zone_name,
+            timezone=org_zone_name,
+        )
+        _write_import(
+            db, filename, imported_by, column_map, data_rows, ZoneInfo(source_zone_name), ZoneInfo(org_zone_name), result
+        )
+        db.commit()  # one commit for everything; also releases the zone lock
+    except Exception:
+        db.rollback()
+        raise
+    return result
+
+
+def _write_import(
+    db: Session,
+    filename: str,
+    imported_by: str,
+    column_map: dict[int, str],
+    data_rows: list[list],
+    source_tz: ZoneInfo,
+    org_tz: ZoneInfo,
+    result: ImportResult,
+) -> None:
+    """Adds the batch, punches and roster updates and recomputes the touched
+    days, filling in `result`. Flushes but does not commit."""
+    batch = ImportBatch(
+        filename=filename, imported_by=imported_by, row_count=len(data_rows), source_timezone=source_tz.key
+    )
     db.add(batch)
     db.flush()
     result.batch_id = str(batch.id)
 
-    touched: set[tuple[str, "datetime.date"]] = set()
+    touched: set[tuple[str, date]] = set()
     employee_updates: dict[str, dict] = {}
 
     for i, raw_row in enumerate(data_rows, start=2):  # spreadsheet row 1 is the header
@@ -120,7 +200,7 @@ def import_punch_log(db: Session, filename: str, raw: bytes, imported_by: str) -
 
         values = {column_map[idx]: raw_row[idx] for idx in column_map if idx < len(raw_row)}
 
-        log_date = _parse_log_date(values.get("log_date"))
+        log_date = _parse_log_date(values.get("log_date"), source_tz)
         emp_code = str(values.get("emp_code") or "").strip()
         name = str(values.get("name") or "").strip()
 
@@ -147,7 +227,7 @@ def import_punch_log(db: Session, filename: str, raw: bytes, imported_by: str) -
             )
         )
         result.accepted += 1
-        touched.add((emp_code, log_date.date()))
+        touched.add((emp_code, local_work_date(log_date, org_tz)))
         employee_updates[emp_code] = {
             "name": name or emp_code,
             "company": company,
@@ -164,13 +244,11 @@ def import_punch_log(db: Session, filename: str, raw: bytes, imported_by: str) -
         employee.name = fields["name"]
         employee.company = fields["company"] or employee.company
         employee.department = fields["department"] or employee.department
-        employee.updated_at = datetime.utcnow()
+        employee.updated_at = datetime.now(timezone.utc)
 
     batch.accepted_count = result.accepted
     batch.rejected_count = len(result.rejected)
-    db.commit()
+    db.flush()  # the roster rows exist before days reference them
 
     result.employees_affected = len(employee_updates)
-    recompute_days(db, touched)
-
-    return result
+    recompute_days(db, touched, org_tz, commit=False)

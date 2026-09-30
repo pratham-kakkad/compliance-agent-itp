@@ -31,6 +31,19 @@ class Settings(BaseSettings):
     teams_sync_interval_minutes: int = 15
     teams_sync_window_days: int = 30
 
+    # --- Organization time zone (see app/org_settings/) ---
+    # IANA name (e.g. "Asia/Kolkata") used until someone picks a zone on the
+    # Settings page; the saved choice (app_settings table) wins over this.
+    # Punches are always stored in UTC; this zone decides how times are shown
+    # and which calendar day a punch belongs to. An invalid name falls back
+    # to UTC with a warning.
+    default_timezone: str = "UTC"
+    # At startup, recompute every attendance day if the days were computed in
+    # a different zone than the current one (e.g. DEFAULT_TIMEZONE changed
+    # with no zone saved in Settings). Tests turn this off (tests/conftest.py)
+    # because the startup hook uses the dev database, not the test one.
+    attendance_timezone_check_on_startup: bool = True
+
     # --- Chat assistant (LangChain tool-calling agent, see app/chat/) ---
     # Groq API key (https://console.groq.com/keys). Empty -> POST /chat returns
     # a clear 503 instead of failing obscurely.

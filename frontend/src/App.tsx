@@ -2,6 +2,7 @@ import { Route, Routes } from "react-router-dom";
 import { MotionConfig } from "framer-motion";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { ChatProvider } from "./lib/ChatContext";
+import { SettingsProvider } from "./lib/SettingsContext";
 import { ThemeProvider } from "./lib/useTheme";
 import { OverlayProvider } from "./components/Modal";
 import { AppLayout } from "./components/AppLayout";
@@ -16,6 +17,7 @@ import { OrgChart } from "./pages/OrgChart";
 import { Assistant } from "./pages/Assistant";
 import { Attendance } from "./pages/Attendance";
 import { AttendanceImport } from "./pages/AttendanceImport";
+import { Settings } from "./pages/Settings";
 
 function BootSplash() {
   return (
@@ -32,23 +34,27 @@ function Gate() {
   if (loading && !me) return <BootSplash />;
   if (!me) return <Login />;
 
+  // Settings load after sign-in and set the org time zone before any page renders.
   return (
-    <ChatProvider>
-      <OverlayProvider>
-        <Routes>
-          <Route element={<AppLayout />}>
-            <Route index element={<Dashboard />} />
-            <Route path="meetings" element={<Meetings />} />
-            <Route path="team" element={<Team />} />
-            <Route path="org-chart" element={<OrgChart />} />
-            <Route path="assistant" element={<Assistant />} />
-            <Route path="attendance" element={<Attendance />} />
-            <Route path="attendance/import" element={<AttendanceImport />} />
-            <Route path="*" element={<NotFound />} />
-          </Route>
-        </Routes>
-      </OverlayProvider>
-    </ChatProvider>
+    <SettingsProvider fallback={<BootSplash />}>
+      <ChatProvider>
+        <OverlayProvider>
+          <Routes>
+            <Route element={<AppLayout />}>
+              <Route index element={<Dashboard />} />
+              <Route path="meetings" element={<Meetings />} />
+              <Route path="team" element={<Team />} />
+              <Route path="org-chart" element={<OrgChart />} />
+              <Route path="assistant" element={<Assistant />} />
+              <Route path="attendance" element={<Attendance />} />
+              <Route path="attendance/import" element={<AttendanceImport />} />
+              <Route path="settings" element={<Settings />} />
+              <Route path="*" element={<NotFound />} />
+            </Route>
+          </Routes>
+        </OverlayProvider>
+      </ChatProvider>
+    </SettingsProvider>
   );
 }
 

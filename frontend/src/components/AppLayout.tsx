@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Toaster } from "sonner";
 import { useAuth } from "../auth/AuthContext";
 import { useTheme } from "../lib/useTheme";
+import { useSettings } from "../lib/SettingsContext";
 import { duration, ease } from "../lib/motion";
 import { ChatFabAndPanel } from "./ChatWidget";
 import { Header } from "./shell/Header";
@@ -20,13 +21,18 @@ function readCollapsed(): boolean {
   }
 }
 
-/** Route content fades in on navigation — no exit animation, so navigation stays instant. */
+/**
+ * Route content fades in on navigation — no exit animation, so navigation stays instant.
+ * Keyed on the org time zone too: changing it in Settings remounts the page, so it
+ * refetches (attendance days are recalculated server-side) and reformats every time.
+ */
 function RouteContent() {
   const outlet = useOutlet();
   const { pathname } = useLocation();
+  const { timezone } = useSettings();
   return (
     <motion.div
-      key={pathname}
+      key={`${pathname}@${timezone}`}
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: duration.base, ease: ease.decelerate }}

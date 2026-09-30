@@ -14,23 +14,29 @@ export function useAttendanceEmployeeModal() {
 
 const WEEKDAYS = ["Mon", "", "Wed", "", "Fri", "", ""];
 
+/** "YYYY-MM-DD" of a UTC-midnight calendar date. */
 function isoDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return d.toISOString().slice(0, 10);
 }
 
-/** GitHub contribution-graph style: one column per week (Mon–Sun), one cell per day. */
+/**
+ * GitHub contribution-graph style: one column per week (Mon–Sun), one cell per day.
+ * work_date values are calendar dates (already in the org time zone), so all the
+ * arithmetic here is done on UTC midnights — no zone, no DST, no shifted days.
+ */
 function DayHeatmap({ days }: { days: AttendanceDay[] }) {
   const weeks = useMemo(() => {
     if (!days.length) return [];
     const byDate = new Map(days.map((d) => [d.work_date.slice(0, 10), d]));
-    const dates = days.map((d) => new Date(`${d.work_date.slice(0, 10)}T00:00:00`)).sort((a, b) => a.getTime() - b.getTime());
+    const dates = days.map((d) => new Date(`${d.work_date.slice(0, 10)}T00:00:00Z`)).sort((a, b) => a.getTime() - b.getTime());
     const start = new Date(dates[0]);
-    start.setDate(start.getDate() - ((start.getDay() + 6) % 7)); // back to Monday
+    start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7)); // back to Monday
     const end = dates[dates.length - 1];
-    const cols: { date: Date; day?: AttendanceDay }[][] = [];
-    for (let d = new Date(start); d <= end || cols[cols.length - 1]?.length < 7; d.setDate(d.getDate() + 1)) {
+    const cols: { date: string; day?: AttendanceDay }[][] = [];
+    for (let d = new Date(start); d <= end || cols[cols.length - 1]?.length < 7; d.setUTCDate(d.getUTCDate() + 1)) {
       if (!cols.length || cols[cols.length - 1].length === 7) cols.push([]);
-      cols[cols.length - 1].push({ date: new Date(d), day: byDate.get(isoDate(d)) });
+      const iso = isoDate(d);
+      cols[cols.length - 1].push({ date: iso, day: byDate.get(iso) });
     }
     return cols;
   }, [days]);
@@ -50,9 +56,9 @@ function DayHeatmap({ days }: { days: AttendanceDay[] }) {
             {week.map(({ date, day }) => {
               const tip = day
                 ? `${fmtDay(day.work_date)} · Present · ${day.punch_count} punch${day.punch_count === 1 ? "" : "es"}`
-                : `${date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · No record`;
+                : `${fmtDay(date)} · No record`;
               return (
-                <Tooltip key={date.toISOString()} content={tip} delay={100}>
+                <Tooltip key={date} content={tip} delay={100}>
                   <span
                     tabIndex={day ? 0 : -1}
                     aria-label={tip}

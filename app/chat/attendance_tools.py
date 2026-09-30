@@ -6,12 +6,14 @@ and "on which date", which is why both kinds exist.
 Scope matches the attendance REST API: any logged-in user sees all
 attendance data. Every tool returns a JSON-serializable dict and never
 raises (errors come back as {"error": ...}; see tool_utils.make_tool).
-Plain presence only — there are no worked hours anywhere.
+Plain presence only — there are no worked hours anywhere. Punches are
+stored in UTC; every HH:MM here is in the organization time zone, the same
+zone attendance days are dated in, and "today" is today in that zone.
 """
 import difflib
 import statistics
 from datetime import date as date_type
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 from typing import Literal
 
 from langchain_core.tools import BaseTool
@@ -25,6 +27,7 @@ from app.attendance.models import AttendanceDay, AttendanceEmployee
 from app.chat.attendance_docs import label
 from app.chat.attendance_index import attendance_index, describe_error
 from app.chat.tool_utils import contains, make_tool, parse_date_arg
+from app.org_settings.service import get_timezone, org_today, to_local
 
 FIND_LIMIT = 25
 DAY_ROWS_LIMIT = 62
@@ -139,12 +142,13 @@ class _SearchArgs(BaseModel):
 # --- helpers ---
 
 
-def _hhmm(value: datetime | None) -> str | None:
-    return value.strftime("%H:%M") if value is not None else None
+def _hhmm(value: datetime | None, tz: tzinfo) -> str | None:
+    """A stored (UTC) punch as HH:MM in the organization zone."""
+    return to_local(value, tz).strftime("%H:%M") if value is not None else None
 
 
-def _median_hhmm(values: list[datetime | None]) -> str | None:
-    minutes = sorted(v.hour * 60 + v.minute for v in values if v is not None)
+def _median_hhmm(values: list[datetime | None], tz: tzinfo) -> str | None:
+    minutes = sorted(m for m in (_minutes(v, tz) for v in values) if m is not None)
     if not minutes:
         return None
     m = statistics.median_low(minutes)
@@ -183,8 +187,12 @@ def _similar_names(db: Session, query: str, limit: int = 5) -> list[str]:
     return [name for _, name in scored[:limit]]
 
 
-def _minutes(value: datetime | None) -> int | None:
-    return value.hour * 60 + value.minute if value is not None else None
+def _minutes(value: datetime | None, tz: tzinfo) -> int | None:
+    """Minutes after local midnight of a stored (UTC) punch, in the organization zone."""
+    if value is None:
+        return None
+    local = to_local(value, tz)
+    return local.hour * 60 + local.minute
 
 
 def _hhmm_from_minutes(m: int) -> str:
@@ -292,7 +300,7 @@ def _resolve_employee(db: Session, text: str) -> tuple[AttendanceEmployee | None
 
 def build_attendance_tools(db: Session, today: date_type | None = None) -> list[BaseTool]:
     def current_day() -> date_type:
-        return today or date_type.today()
+        return today or org_today(db)
 
     def attendance_overview() -> dict:
         totals = db.execute(
@@ -411,6 +419,7 @@ def build_attendance_tools(db: Session, today: date_type | None = None) -> list[
         emp, problem = _resolve_employee(db, employee)
         if problem is not None:
             return problem
+        tz = get_timezone(db)
 
         explicit = start is not None or end is not None
         end = end or today_
@@ -458,8 +467,8 @@ def build_attendance_tools(db: Session, today: date_type | None = None) -> list[
             [
                 r.work_date.isoformat(),
                 r.work_date.strftime("%a"),
-                _hhmm(r.first_punch),
-                _hhmm(r.last_punch),
+                _hhmm(r.first_punch, tz),
+                _hhmm(r.last_punch, tz),
                 r.punch_count,
             ]
             for r in rows[:DAY_ROWS_LIMIT]
@@ -477,8 +486,8 @@ def build_attendance_tools(db: Session, today: date_type | None = None) -> list[
                 "range_end": range_end.isoformat(),
                 "calendar_days_in_range": (range_end - range_start).days + 1,
                 "single_punch_days": sum(1 for r in rows if r.punch_count == 1),
-                "median_first_punch": _median_hhmm([r.first_punch for r in rows]),
-                "median_last_punch": _median_hhmm([r.last_punch for r in rows]),
+                "median_first_punch": _median_hhmm([r.first_punch for r in rows], tz),
+                "median_last_punch": _median_hhmm([r.last_punch for r in rows], tz),
             },
             # The agent may shrink "days" further to fit its budget; it then
             # updates truncated and days_shown to match.
@@ -547,8 +556,9 @@ def build_attendance_tools(db: Session, today: date_type | None = None) -> list[
                     f"or it was a weekend/holiday. Latest tracked date: {_iso(last) or 'none'}."
                 )
 
+        tz = get_timezone(db)
         present_rows = [
-            [r.name, r.emp_code, label(r.department), _hhmm(r.first_punch), _hhmm(r.last_punch), r.punch_count]
+            [r.name, r.emp_code, label(r.department), _hhmm(r.first_punch, tz), _hhmm(r.last_punch, tz), r.punch_count]
             for r in present[:ON_DATE_LIST_LIMIT]
         ]
         no_record_rows = [[r.name, r.emp_code, label(r.department)] for r in no_record[:ON_DATE_LIST_LIMIT]]
@@ -612,12 +622,13 @@ def build_attendance_tools(db: Session, today: date_type | None = None) -> list[
         def blank(name, dept) -> dict:
             return {"name": name, "department": label(dept), "days": 0, "single": 0, "first": [], "last": []}
 
+        tz = get_timezone(db)
         people: dict[str, dict] = {}
         for r in db.execute(stmt).all():
             p = people.setdefault(r.emp_code, blank(r.name, r.department))
             p["days"] += 1
             p["single"] += 1 if r.punch_count == 1 else 0
-            first, last = _minutes(r.first_punch), _minutes(r.last_punch)
+            first, last = _minutes(r.first_punch, tz), _minutes(r.last_punch, tz)
             if first is not None:
                 p["first"].append(first)
             if last is not None:
@@ -715,6 +726,7 @@ def build_attendance_tools(db: Session, today: date_type | None = None) -> list[
             stmt = stmt.where(AttendanceDay.emp_code == emp.emp_code)
 
         found = db.execute(stmt).all()
+        tz = get_timezone(db)
         per_employee: dict[str, list] = {}
         for r in found:
             entry = per_employee.setdefault(r.emp_code, [r.name, r.emp_code, label(r.department), 0])
@@ -722,7 +734,14 @@ def build_attendance_tools(db: Session, today: date_type | None = None) -> list[
         per_employee_rows = sorted(per_employee.values(), key=lambda e: (-e[3], e[0]))
 
         rows = [
-            [r.work_date.isoformat(), r.work_date.strftime("%a"), r.name, r.emp_code, label(r.department), _hhmm(r.first_punch)]
+            [
+                r.work_date.isoformat(),
+                r.work_date.strftime("%a"),
+                r.name,
+                r.emp_code,
+                label(r.department),
+                _hhmm(r.first_punch, tz),
+            ]
             for r in found[:SINGLE_PUNCH_ROWS_LIMIT]
         ]
         result: dict = {

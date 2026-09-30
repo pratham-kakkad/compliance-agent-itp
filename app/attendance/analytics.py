@@ -2,12 +2,13 @@
 an AttendanceDay row means "this employee had activity that day" — there's
 no hours/duration compliance rate here, just counts of tracked days.
 """
-from datetime import date, timedelta
+from datetime import timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.attendance.models import AttendanceDay, AttendanceEmployee
+from app.org_settings.service import org_today
 
 
 def overall_summary(db: Session) -> dict:
@@ -99,7 +100,7 @@ def employee_detail(db: Session, emp_code: str, days: int = 60) -> dict | None:
     if employee is None:
         return None
 
-    since = date.today() - timedelta(days=days)
+    since = org_today(db) - timedelta(days=days)
     day_rows = db.execute(
         select(AttendanceDay)
         .where(AttendanceDay.emp_code == emp_code, AttendanceDay.work_date >= since)

@@ -1,11 +1,13 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import clsx from "clsx";
 import { motion } from "framer-motion";
 import { CheckCircle2, Download, FileSpreadsheet, Rows3, UploadCloud, Users, X, XCircle } from "lucide-react";
 import { uploadFile } from "../lib/api";
 import { fmtBytes } from "../lib/format";
+import { useSettings, useTimezoneList } from "../lib/SettingsContext";
 import type { AttendanceImportResult } from "../types";
 import { Banner, Button, Card, CardHeader, DataTable, EmptyState, IconButton, PageHeader, ProgressBar, StatCard } from "../components/ui";
+import { TimezoneSelect } from "../components/TimezoneSelect";
 import { notify } from "../components/shell/toast";
 
 const ACCEPTED_EXT = [".csv", ".xlsx", ".xlsm"];
@@ -37,6 +39,30 @@ export function AttendanceImport() {
   const [result, setResult] = useState<AttendanceImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { settings, error: settingsError, reload: reloadSettings } = useSettings();
+  const orgZone = settings.timezone;
+  const { data: tzList, error: tzError } = useTimezoneList();
+  // The zone the file's times were recorded in; most devices run on the organization's zone.
+  const [fileZone, setFileZone] = useState(orgZone);
+  // Until the uploader picks a zone, none is sent and the server reads the file in its
+  // current organization zone — never a zone this tab cached (or the UTC fallback).
+  const [zoneTouched, setZoneTouched] = useState(false);
+  const zoneId = useId();
+
+  // Pick up a zone change someone else made since the app booted (also retries a failed load).
+  useEffect(() => {
+    void reloadSettings();
+  }, [reloadSettings]);
+
+  // An untouched picker follows the organization zone.
+  useEffect(() => {
+    if (!zoneTouched) setFileZone(orgZone);
+  }, [orgZone, zoneTouched]);
+
+  const pickZone = (tz: string) => {
+    setFileZone(tz);
+    setZoneTouched(true);
+  };
 
   const chooseFile = useCallback((f: File | null) => {
     setResult(null);
@@ -56,7 +82,9 @@ export function AttendanceImport() {
     setError(null);
     setResult(null);
     try {
-      const r = await uploadFile<AttendanceImportResult>("/attendance/import", file);
+      const r = await uploadFile<AttendanceImportResult>("/attendance/import", file, "file", {
+        timezone: zoneTouched ? fileZone : undefined,
+      });
       setResult(r);
       setFile(null);
       notify.success("Import complete", `${r.accepted} of ${r.row_count} rows accepted${r.rejected.length ? `, ${r.rejected.length} rejected` : ""}.`);
@@ -139,11 +167,52 @@ export function AttendanceImport() {
             </div>
           )}
 
-          <div className="mt-4 flex items-center justify-end gap-2">
+          {settingsError && (
+            <Banner
+              tone="warn"
+              title="The organization's time zone couldn't be loaded"
+              className="mt-4"
+              action={
+                <Button size="sm" onClick={() => void reloadSettings()}>
+                  Try again
+                </Button>
+              }
+            >
+              {settingsError.message} Unless you pick the file's time zone below, the server reads it in the
+              organization's saved time zone.
+            </Banner>
+          )}
+
+          <div className="mt-4 flex flex-col sm:flex-row sm:items-end gap-3">
+            <div className="flex-1 min-w-0">
+              <label htmlFor={`${zoneId}-zone`} className="block text-[13px] font-medium text-ink mb-1.5">
+                Time zone of the times in this file
+              </label>
+              <TimezoneSelect
+                id={`${zoneId}-zone`}
+                value={fileZone}
+                onChange={pickZone}
+                timezones={tzList?.timezones}
+                disabled={uploading}
+                aria-describedby={`${zoneId}-zone-help`}
+                className="w-full"
+              />
+            </div>
             <Button variant="primary" leadingIcon={UploadCloud} disabled={!file} loading={uploading} onClick={submit}>
               {uploading ? "Importing…" : "Import file"}
             </Button>
           </div>
+          <p id={`${zoneId}-zone-help`} className="text-xs text-ink2 mt-1.5">
+            {settingsError && !zoneTouched ? (
+              <>Times in the file are read in the organization's saved time zone and stored in UTC.</>
+            ) : (
+              <>Times in the file are read in this zone and stored in UTC.</>
+            )}
+            {!settingsError && fileZone !== orgZone && (
+              <> They're shown, and counted toward attendance days, in the organization's zone ({orgZone}).</>
+            )}
+            {tzError && <span className="text-crit"> The full list of zones couldn't be loaded.</span>}
+          </p>
         </Card>
 
         <Card>
@@ -154,8 +223,9 @@ export function AttendanceImport() {
             ))}
           </ul>
           <p className="text-[13px] text-ink2 mt-4">
-            Each row is one punch. Log Date is DD-MM-YYYY plus Hr:Min. Device (Entry/Exit) is stored but not used for
-            any calculation yet — a day is simply marked tracked for an employee once it has at least one punch.
+            Each row is one punch. Log Date is DD-MM-YYYY plus Hr:Min, read in the zone picked under “Time zone of the
+            times in this file” (a timestamp that carries its own UTC offset keeps it). Device (Entry/Exit) is stored but
+            not used for any calculation yet — a day is simply marked tracked for an employee once it has at least one punch.
           </p>
         </Card>
       </div>
@@ -170,6 +240,10 @@ export function AttendanceImport() {
         >
           <Banner tone={result.rejected.length ? "warn" : "good"} title="Import complete">
             {result.accepted} of {result.row_count} rows were imported across {result.employees_affected} employee{result.employees_affected === 1 ? "" : "s"}.
+            {result.source_timezone && <> Read as {result.source_timezone} time and stored in UTC.</>}
+            {result.timezone && result.timezone !== result.source_timezone && (
+              <> Attendance days follow the organization's time zone ({result.timezone}).</>
+            )}
           </Banner>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard label="Rows in file" icon={Rows3} value={String(result.row_count)} animateValue={result.row_count} />

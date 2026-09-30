@@ -18,6 +18,13 @@ _TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/meeting_complia
 # database, not the per-test one — in tests it would embed dev data with the
 # tests' fake embeddings and write those vectors into the dev cache.
 settings.assistant_warm_index = False
+# Same for the startup check that recomputes attendance days when the
+# organization time zone changed: it would run against the dev database.
+settings.attendance_timezone_check_on_startup = False
+# Tests assume the documented default org zone (UTC), whatever the
+# developer's .env sets DEFAULT_TIMEZONE to; tests that need another default
+# set it themselves.
+settings.default_timezone = "UTC"
 
 
 def _ensure_test_database_exists() -> None:

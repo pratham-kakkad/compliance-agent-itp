@@ -22,6 +22,8 @@ from app.config import settings
 from app.database import SessionLocal
 from app.directory import STUB_DIRECTORY
 from app.models import OrgUser
+import app.org_settings.models  # noqa: F401 -- registers the app_settings table
+from app.org_settings.api import router as settings_router
 from app.teams_sync import sync_all_real_users
 
 logger = logging.getLogger("app.teams_sync")
@@ -58,9 +60,29 @@ def _warm_attendance_index() -> None:
         db.close()
 
 
+def _reconcile_attendance_timezone() -> None:
+    """Attendance days are dated in the organization time zone. If they were
+    last computed in another zone (DEFAULT_TIMEZONE changed while no zone is
+    saved in Settings, or data from before time zones existed), recompute
+    them now. A failure only logs: the app still starts."""
+    from app.org_settings.service import reconcile_attendance_days
+
+    db = SessionLocal()
+    try:
+        reconcile_attendance_days(db)
+    except Exception:
+        logging.getLogger("app.org_settings").warning(
+            "Couldn't check attendance days against the organization time zone", exc_info=True
+        )
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     seed_directory()
+    if settings.attendance_timezone_check_on_startup:
+        await asyncio.to_thread(_reconcile_attendance_timezone)
 
     sync_task = None
     if microsoft_oauth.is_configured():
@@ -122,6 +144,7 @@ app.include_router(orgchart_router)
 app.include_router(dashboard_router)
 app.include_router(chat_router)
 app.include_router(attendance_router)
+app.include_router(settings_router)
 
 class SPAStaticFiles(StaticFiles):
     """Serves the built SPA; client-side routes (extension-less paths like

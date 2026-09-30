@@ -227,4 +227,48 @@ export interface AttendanceImportResult {
   accepted: number;
   employees_affected: number;
   rejected: AttendanceImportRejected[];
+  /** IANA zone the file's naive timestamps were read in (then stored as UTC). */
+  source_timezone: string;
+  /** Organization zone used to assign punches to attendance days. */
+  timezone: string;
+}
+
+// --- Organization settings ---
+
+/** GET /settings — organization-wide preferences. */
+export interface OrgSettings {
+  /** IANA zone every time is displayed in; also decides which day a punch counts toward. */
+  timezone: string;
+  /** Current UTC offset of `timezone`, e.g. "+05:30". */
+  timezone_offset: string;
+  /** Server default (DEFAULT_TIMEZONE) used until someone saves a zone. */
+  default_timezone: string;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+/** PUT /settings body — partial update; omitted or null fields are left untouched. */
+export interface OrgSettingsPatch {
+  timezone?: string | null;
+}
+
+/** PUT /settings response. */
+export interface OrgSettingsUpdateResult extends OrgSettings {
+  changed: boolean;
+  /** AttendanceDay rows rebuilt in the new zone (0 when nothing changed). */
+  recomputed_days: number;
+}
+
+export interface TimezoneOption {
+  name: string;
+  /** Current UTC offset, e.g. "+05:30". */
+  offset: string;
+  /** e.g. "(UTC+05:30) Asia/Kolkata". */
+  label: string;
+}
+
+/** GET /settings/timezones — sorted by current offset, then name. */
+export interface TimezoneList {
+  timezones: TimezoneOption[];
+  default: string;
 }

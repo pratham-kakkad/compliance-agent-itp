@@ -1,11 +1,15 @@
 import uuid
-from datetime import date as date_, datetime
+from datetime import date as date_, datetime, timezone
 
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class ImportBatch(Base):
@@ -18,10 +22,14 @@ class ImportBatch(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     filename: Mapped[str] = mapped_column(String, nullable=False)
     imported_by: Mapped[str] = mapped_column(String, nullable=False)
-    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     row_count: Mapped[int] = mapped_column(Integer, default=0)
     accepted_count: Mapped[int] = mapped_column(Integer, default=0)
     rejected_count: Mapped[int] = mapped_column(Integer, default=0)
+    # IANA zone the file's naive Log Date values were read in (the uploader's
+    # choice, default the organization zone). NULL for imports from before
+    # time zones existed, whose times were stored as-is (taken to be UTC).
+    source_timezone: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class BiometricPunchLog(Base):
@@ -34,6 +42,7 @@ class BiometricPunchLog(Base):
     import_batch_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("attendance_import_batches.id"), nullable=True
     )
+    # The punch as a UTC instant (see importer.py for how file times are read).
     log_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # Raw Entry/Exit marker from the device export — stored as-is, not used
     # for any in/out or duration logic in this pass.
@@ -42,7 +51,7 @@ class BiometricPunchLog(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     company: Mapped[str] = mapped_column(String, nullable=True)
     department: Mapped[str] = mapped_column(String, nullable=True)
-    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class AttendanceEmployee(Base):
@@ -57,14 +66,15 @@ class AttendanceEmployee(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     company: Mapped[str] = mapped_column(String, nullable=True)
     department: Mapped[str] = mapped_column(String, nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     days: Mapped[list["AttendanceDay"]] = relationship(back_populates="employee", cascade="all, delete-orphan")
 
 
 class AttendanceDay(Base):
-    """One row per employee per calendar day that had at least one punch.
-    Computed from BiometricPunchLog by app/attendance/rules.py — safe to
+    """One row per employee per calendar day that had at least one punch —
+    the day in the organization time zone; first_punch/last_punch are UTC
+    instants. Computed from BiometricPunchLog by app/attendance/rules.py — safe to
     recompute/overwrite for a given (emp_code, work_date), same upsert
     spirit as the Meetings agent's sync_occurrence.
 

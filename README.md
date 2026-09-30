@@ -75,10 +75,22 @@ the frontend — not touching the others.
   ignored). `Log Date` is `DD-MM-YYYY Hr:Min` and is parsed day-first;
   `Device` carries a raw Entry/Exit marker that's stored but not used for
   any logic yet. `app/attendance/rules.py` has the aggregation. API: `POST
-  /attendance/import`, `GET /attendance/dashboard`, `GET /attendance`, `GET
-  /attendance/{emp_code}`. `scripts/seed_demo_attendance.py` seeds realistic
-  demo punch data for the 3 demo accounts by running it through the real
-  import path.
+  /attendance/import` (multipart `file` plus an optional `timezone`, see
+  [Time zones](#time-zones)), `GET /attendance/dashboard`, `GET
+  /attendance`, `GET /attendance/{emp_code}`.
+  `scripts/seed_demo_attendance.py` seeds realistic demo punch data for the
+  3 demo accounts by running it through the real import path. It is
+  idempotent: each run first deletes the punches and import batches of
+  earlier seed runs (only batches imported by `seed_demo_attendance.py`,
+  never any other import), recomputes or removes the days they made, then
+  imports the last 14 days again — so the demo counts no longer grow on
+  every container start.
+- **Settings** (`app/org_settings/`, `GET/PUT /settings`, `GET
+  /settings/timezones`, the Settings page pinned at the bottom of the nav):
+  organization-wide settings in a generic key-value table (`app_settings`),
+  so more settings can be added without a migration. Anyone logged in can
+  change them (there are no roles yet — the same people who can import).
+  The first setting is the organization time zone.
 - **UI**: a React + TypeScript SPA (`frontend/`, Vite + Tailwind + Recharts +
   Framer Motion) served at `/ui/` (`/` redirects there). In Docker it's its
   own service (nginx, see below); on the host FastAPI serves the committed
@@ -86,13 +98,47 @@ the frontend — not touching the others.
   toolchain — only rebuild when you change something under `frontend/`. Nav
   is grouped by agent — a combined Dashboard, a Meetings group (Meetings
   list, Team, Org Chart) and an Attendance group (employee list/detail,
-  punch-log import) — with the cross-agent Assistant pinned at the bottom,
-  above the collapse control. Light by default, dark mode via the sidebar
+  punch-log import) — with the cross-agent Assistant and Settings pinned at
+  the bottom, above the collapse control. Light by default, dark mode via the sidebar
   toggle.
 - **Brand**: the official logo lives in `brand/` (the original PNG plus
   traced SVG versions for light and dark backgrounds and an app icon). The
   UI draws the same vector paths inline (`frontend/src/components/shell/Logo.tsx`)
   so the logo follows the theme's text color.
+
+## Time zones
+
+- **Storage is UTC.** Every punch (`biometric_punch_logs.log_date`) is a UTC
+  instant. Punches imported before time zones existed were stored as-is
+  and are treated as UTC.
+- **Organization time zone** (Settings page, `PUT /settings
+  {"timezone": "Asia/Kolkata"}`): one IANA zone for the whole organization.
+  It decides how every time is shown — the UI and the assistant both use it
+  instead of each viewer's browser zone — and which calendar day a punch
+  counts for (`attendance_days.work_date` is the punch's date in that zone,
+  so with Asia/Kolkata a punch at 20:00 UTC is 01:30 the next day). Until
+  someone saves a zone there, `DEFAULT_TIMEZONE` from `.env` is used
+  (default `UTC`; must be an IANA name such as `Asia/Kolkata`; an unknown
+  name falls back to UTC with a warning).
+- **Changing the zone recomputes every attendance day** from the raw
+  punches, in the same transaction as the change (all or nothing), and
+  rebuilds the assistant's search index on the next search. The response
+  says how many days there are after the recompute. If `DEFAULT_TIMEZONE`
+  changes while no zone is saved in Settings, the app notices at startup
+  (it remembers which zone the days were computed in) and recomputes then.
+- **Import time zone**: device exports carry wall-clock times with no zone,
+  so the upload form asks which zone the file is in (multipart field
+  `timezone`, default the organization zone). Times without an offset are
+  read in that zone (a time made ambiguous by a DST change is taken as its
+  first occurrence) and converted to UTC; a value that carries its own
+  offset (`...+05:30`, `...Z`) keeps it. The zone used is stored on the
+  import batch (`attendance_import_batches.source_timezone`) and returned
+  as `source_timezone`, next to `timezone` (the organization zone the days
+  were computed in). An unknown zone is a 400 and nothing is imported.
+- `GET /settings/timezones` lists every zone with its current UTC offset
+  (`"(UTC+05:30) Asia/Kolkata"`), sorted by offset. Zone data comes from the
+  `tzdata` package, so it is the same on Windows, Linux and the slim Docker
+  image.
 
 ## Chat assistant
 
@@ -115,16 +161,21 @@ switching provider is a change there.
   HuggingFace (`sentence-transformers/all-MiniLM-L6-v2` by default) via the
   Inference API, into an in-memory LangChain `InMemoryVectorStore`.
 - **Freshness** (`app/chat/attendance_index.py`): the index rebuilds lazily
-  on the next search when attendance data changes (a cheap fingerprint
-  query), after an import, when the date rolls over, when the embedding
-  model changes, or on `POST /chat/reindex`. Vectors are cached in the
+  on the next search when attendance data or the organization time zone
+  changes (a cheap fingerprint query), after an import, when the date rolls
+  over in the organization zone, when the embedding model changes, or on
+  `POST /chat/reindex`. Vectors are cached in the
   `assistant_embedding_cache` table (namespace = mode + model, key = sha256
   of the text), so only new or changed texts are sent to HuggingFace; the
   first build after a fresh install embeds everything once. A failed build
   isn't retried for 60 seconds. The table is pure cache and safe to
   truncate.
+- **Time zone**: every date and HH:MM the assistant sees or says is in the
+  organization time zone (the system prompt names it and its UTC offset),
+  and "today" is today there. See [Time zones](#time-zones).
 - **Meetings**: the four original meeting tools (`app/chat/meeting_tools.py`)
-  are ported unchanged, including the `access.visible_emails` scoping.
+  are ported unchanged, including the `access.visible_emails` scoping
+  (meeting timestamps are given in the organization zone).
   Attendance tools see all attendance data, the same as the attendance API.
 - **Keys** (`.env`): `GROQ_API_KEY` (https://console.groq.com/keys; without
   it `/chat` returns a clear 503) and `HUGGINGFACEHUB_API_TOKEN` or
