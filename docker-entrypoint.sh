@@ -6,6 +6,7 @@ python -m alembic upgrade head
 if [ "${SEED_DEMO_DATA:-true}" = "true" ]; then
   python scripts/seed_demo_data.py
   python scripts/seed_demo_attendance.py
+  python scripts/seed_demo_compliance.py
 fi
 
 if [ "${DEBUGPY:-false}" = "true" ]; then

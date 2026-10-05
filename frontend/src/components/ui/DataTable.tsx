@@ -120,6 +120,7 @@ export function DataTable<T>({
           {sorted.map((row, idx) => (
             <tr
               key={getRowKey(row)}
+              style={{ "--row": Math.min(idx, 14) } as React.CSSProperties}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
               onKeyDown={
                 onRowClick
@@ -134,7 +135,7 @@ export function DataTable<T>({
               tabIndex={onRowClick ? 0 : undefined}
               aria-label={onRowClick && rowLabel ? rowLabel(row) : undefined}
               className={clsx(
-                "border-b border-line-soft last:border-0 transition-colors duration-100",
+                "mc-row border-b border-line-soft last:border-0 transition-colors duration-100",
                 onRowClick && "cursor-pointer hover:bg-panel2 focus-visible:bg-panel2 focus-visible:outline-none focus-visible:shadow-[inset_2px_0_0_var(--accent)]"
               )}
             >

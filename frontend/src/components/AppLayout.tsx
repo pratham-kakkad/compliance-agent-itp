@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useOutlet } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useAppReady } from "../lib/splash";
 import { Toaster } from "sonner";
 import { useAuth } from "../auth/AuthContext";
 import { useTheme } from "../lib/useTheme";
@@ -30,12 +31,13 @@ function RouteContent() {
   const outlet = useOutlet();
   const { pathname } = useLocation();
   const { timezone } = useSettings();
+  const ready = useAppReady();
   return (
     <motion.div
       key={`${pathname}@${timezone}`}
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: duration.base, ease: ease.decelerate }}
+      initial={{ opacity: 0, y: 18, scale: 0.99, filter: "blur(6px)" }}
+      animate={ready ? { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" } : undefined}
+      transition={{ duration: duration.slow + 0.2, ease: ease.decelerate }}
     >
       {outlet}
     </motion.div>
@@ -51,7 +53,7 @@ export function AppLayout() {
 
   useEffect(() => {
     const { page } = locate(pathname);
-    document.title = page ? `${page.label} · Intuitive Compliance Hub` : "Intuitive Compliance Hub";
+    document.title = page ? `${page.label} · INT Comply` : "INT Comply";
   }, [pathname]);
 
   const toggleCollapsed = useCallback(() => {

@@ -36,6 +36,10 @@ services:
       DATABASE_URL: postgresql+psycopg2://meetingcompliance:meetingcompliance@db:5432/meeting_compliance
       # Set to "false" to skip seeding demo data on every container start.
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+    # Uploaded compliance evidence (screenshots, certificates, ...) lives here,
+    # so it survives the container being rebuilt.
+    volumes:
+      - evidence_data:/app/data/evidence
     expose:
       - "8010"
 
@@ -53,3 +57,4 @@ services:
 
 volumes:
   meeting_compliance_data:
+  evidence_data:

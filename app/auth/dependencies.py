@@ -13,4 +13,6 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> OrgUser
     user = db.get(OrgUser, email)
     if user is None:
         raise HTTPException(status_code=401, detail="Session user not found")
+    if not user.is_active:
+        raise HTTPException(status_code=401, detail="This account has been deactivated")
     return user

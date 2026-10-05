@@ -5,8 +5,10 @@ import { motion } from "framer-motion";
 import * as D from "@radix-ui/react-dialog";
 import { PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { spring } from "../../lib/motion";
+import { useAppReady } from "../../lib/splash";
 import { IconButton, Tooltip } from "../ui";
 import { NAV, NAV_FOOTER, isActive, type NavItem, type NavSection } from "./nav";
+import { useVisibleNav } from "./useVisibleNav";
 import { Logo } from "./Logo";
 
 function NavEntry({ item, collapsed, indicatorId, onNavigate }: { item: NavItem; collapsed: boolean; indicatorId: string; onNavigate?: () => void }) {
@@ -32,7 +34,9 @@ function NavEntry({ item, collapsed, indicatorId, onNavigate }: { item: NavItem;
           className={clsx("absolute top-1.5 bottom-1.5 w-[3px] rounded-full bg-accent", collapsed ? "-left-2" : "-left-2")}
         />
       )}
-      <Icon size={16} className={clsx("flex-none", active ? "text-accent" : "")} aria-hidden />
+      <motion.span className="flex flex-none" whileHover={{ rotate: [0, -12, 10, -6, 0], scale: 1.15 }} transition={{ duration: 0.5 }}>
+        <Icon size={16} className={clsx("flex-none", active ? "text-accent" : "")} aria-hidden />
+      </motion.span>
       {!collapsed && <span className="truncate">{item.label}</span>}
     </NavLink>
   );
@@ -58,6 +62,8 @@ function NavList({
   indicatorId: string;
   onNavigate?: () => void;
 }) {
+  const ready = useAppReady();
+  let n = 0; // running index across sections, for the staggered entrance
   return (
     <nav aria-label={label} className="flex flex-col gap-4">
       {sections.map((section) => (
@@ -70,9 +76,14 @@ function NavList({
             ))}
           <ul className="flex flex-col gap-0.5">
             {section.items.map((item) => (
-              <li key={item.to}>
+              <motion.li
+                key={item.to}
+                initial={{ opacity: 0, x: -16 }}
+                animate={ready ? { opacity: 1, x: 0 } : { opacity: 0, x: -16 }}
+                transition={{ duration: 0.45, delay: ready ? 0.1 + n++ * 0.05 : 0, ease: [0.16, 1, 0.3, 1] }}
+              >
                 <NavEntry item={item} collapsed={collapsed} indicatorId={indicatorId} onNavigate={onNavigate} />
-              </li>
+              </motion.li>
             ))}
           </ul>
         </div>
@@ -81,8 +92,11 @@ function NavList({
   );
 }
 
+const FOOTER_SECTIONS = [NAV_FOOTER];
+
 export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const indicatorId = `nav-indicator-${useId()}`;
+  const main = useVisibleNav(NAV);
   return (
     <motion.aside
       initial={false}
@@ -91,10 +105,10 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
       className="hidden lg:flex flex-col flex-none sticky top-14 h-[calc(100vh-56px)] bg-sidebar border-r border-line overflow-hidden"
     >
       <div className="flex-1 overflow-y-auto overflow-x-hidden py-4 px-3">
-        <NavList sections={NAV} label="Primary" collapsed={collapsed} indicatorId={indicatorId} />
+        <NavList sections={main} label="Primary" collapsed={collapsed} indicatorId={indicatorId} />
       </div>
       <div className="border-t border-line px-3 pt-3 pb-3 flex flex-col gap-2">
-        <NavList sections={[NAV_FOOTER]} label="Tools" collapsed={collapsed} indicatorId={indicatorId} />
+        <NavList sections={FOOTER_SECTIONS} label="Tools" collapsed={collapsed} indicatorId={indicatorId} />
         <div className={clsx("flex", collapsed ? "justify-center" : "justify-end")}>
           <IconButton
             icon={collapsed ? PanelLeftOpen : PanelLeftClose}
@@ -109,6 +123,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
 
 export function NavDrawer({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const indicatorId = `nav-indicator-${useId()}`;
+  const main = useVisibleNav(NAV);
   const close = () => onOpenChange(false);
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
@@ -126,10 +141,10 @@ export function NavDrawer({ open, onOpenChange }: { open: boolean; onOpenChange:
             </D.Close>
           </div>
           <div className="flex-1 overflow-y-auto py-4 px-3">
-            <NavList sections={NAV} label="Primary" collapsed={false} indicatorId={indicatorId} onNavigate={close} />
+            <NavList sections={main} label="Primary" collapsed={false} indicatorId={indicatorId} onNavigate={close} />
           </div>
           <div className="border-t border-line p-3">
-            <NavList sections={[NAV_FOOTER]} label="Tools" collapsed={false} indicatorId={indicatorId} onNavigate={close} />
+            <NavList sections={FOOTER_SECTIONS} label="Tools" collapsed={false} indicatorId={indicatorId} onNavigate={close} />
           </div>
         </D.Content>
       </D.Portal>

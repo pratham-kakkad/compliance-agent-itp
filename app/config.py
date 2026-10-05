@@ -76,5 +76,17 @@ class Settings(BaseSettings):
     # this off (tests/conftest.py).
     assistant_warm_index: bool = True
 
+    # --- Compliance engine (see app/compliance/) ---
+    # Comma-separated e-mails that are Super Admins regardless of role rows, so
+    # a fresh install always has someone who can configure access. The default
+    # is the demo manager; set this to your own administrators in production.
+    compliance_super_admins: str = "ava.martinez@corp.com"
+    # Where uploaded evidence files are stored (mount a volume here in Docker).
+    evidence_dir: str = "data/evidence"
+    evidence_max_mb: int = 10
+    # How often the background job re-evaluates deadlines and escalations.
+    # 0 turns the background job off (tests do; POST /compliance/admin/run-tick still works).
+    compliance_tick_minutes: int = 5
+
 
 settings = Settings()

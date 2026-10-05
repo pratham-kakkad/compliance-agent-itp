@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#ffffff" />
-    <title>Intuitive Compliance Hub</title>
+    <meta name="theme-color" content="#061436" />
+    <title>INT Comply — Integrated Compliance Solutions</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -13,6 +13,18 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
+    <script>
+      // Decide before first paint whether the intro splash plays this session (once per tab, never for reduced motion).
+      (function () {
+        try {
+          var d = document.documentElement;
+          var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          var seen = false;
+          try { seen = sessionStorage.getItem("ic-splash-seen") === "1"; } catch (e) {}
+          d.dataset.splash = reduce || seen ? "skip" : "on";
+        } catch (e) { document.documentElement.dataset.splash = "off"; }
+      })();
+    </script>
     <script>
       // Apply the saved theme before first paint to avoid a light/dark flash.
       try {

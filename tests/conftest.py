@@ -25,6 +25,12 @@ settings.attendance_timezone_check_on_startup = False
 # developer's .env sets DEFAULT_TIMEZONE to; tests that need another default
 # set it themselves.
 settings.default_timezone = "UTC"
+# The background deadline/escalation job would use the dev database; tests call tick() themselves.
+settings.compliance_tick_minutes = 0
+# Evidence files go to a throwaway folder, and the bootstrap Super Admin is explicit in tests.
+import tempfile  # noqa: E402
+
+settings.evidence_dir = tempfile.mkdtemp(prefix="evidence-test-")
 
 
 def _ensure_test_database_exists() -> None:
@@ -58,6 +64,10 @@ def db_session(engine):
     for entry in STUB_DIRECTORY:
         session.add(OrgUser(**entry, is_demo=True))
     session.commit()
+
+    from app.compliance.seed import seed_system_data
+
+    seed_system_data(session)  # built-in roles and compliance types
 
     yield session
 

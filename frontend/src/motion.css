@@ -1,0 +1,416 @@
+/*
+ * INT Comply motion system: brand tokens (copper accent), the animated backdrop, entrance / stagger helpers,
+ * the intro splash and the orbit dashboard. Plain CSS on top of the Tailwind build; imported from main.tsx.
+ * Everything animated here is switched off under prefers-reduced-motion at the bottom of the file.
+ */
+
+:root {
+  /* Copper: the warm half of the INT Comply logo */
+  --copper: #c98a5e;
+  --copper-light: #f1c8a6;
+  --copper-deep: #8f5636;
+  --copper-soft: rgba(201, 138, 94, 0.14);
+  --copper-glow: rgba(201, 138, 94, 0.35);
+  --copper-grad: linear-gradient(135deg, #f1c8a6 0%, #c98a5e 52%, #8f5636 100%);
+  --deep-blue: #0b2a66;
+  --brand-grad: linear-gradient(135deg, #2a63c7 0%, #1346a8 45%, #0b2a66 100%);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --aurora-a: rgba(19, 70, 168, 0.14);
+  --aurora-b: rgba(201, 138, 94, 0.17);
+}
+.dark {
+  --deep-blue: #8db3f5;
+  --aurora-a: rgba(68, 120, 230, 0.16);
+  --aurora-b: rgba(201, 138, 94, 0.12);
+}
+
+/* ---------- animated backdrop: slow-drifting aurora in the logo's navy + copper ---------- */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -18%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(38% 34% at 14% 18%, var(--aurora-a), transparent 70%),
+    radial-gradient(34% 30% at 88% 12%, var(--aurora-b), transparent 70%),
+    radial-gradient(44% 38% at 72% 92%, var(--aurora-a), transparent 70%),
+    radial-gradient(30% 28% at 8% 88%, var(--aurora-b), transparent 70%);
+  animation: aurora 26s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes aurora {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(3%, -2%, 0) scale(1.09) rotate(2deg);
+  }
+  100% {
+    transform: translate3d(-3%, 3%, 0) scale(1.04) rotate(-2deg);
+  }
+}
+
+/* ---------- entrances ---------- */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 22px, 0) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Children rise in one after another. Apply to any grid or stack. */
+.stagger > * {
+  animation: rise 640ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+.stagger > :nth-child(1) { --i: 0; }
+.stagger > :nth-child(2) { --i: 1; }
+.stagger > :nth-child(3) { --i: 2; }
+.stagger > :nth-child(4) { --i: 3; }
+.stagger > :nth-child(5) { --i: 4; }
+.stagger > :nth-child(6) { --i: 5; }
+.stagger > :nth-child(7) { --i: 6; }
+.stagger > :nth-child(8) { --i: 7; }
+.stagger > :nth-child(9) { --i: 8; }
+.stagger > :nth-child(10) { --i: 9; }
+.stagger > :nth-child(n + 11) { --i: 10; }
+
+/* Table rows rise in one after another (--row is set per row). */
+.mc-row {
+  animation: rise 520ms var(--ease-out) both;
+  animation-delay: calc(var(--row, 0) * 32ms);
+}
+
+/* Scroll-reveal: hidden until useReveal flips data-in. */
+.reveal {
+  opacity: 0;
+  transform: translate3d(0, 26px, 0) scale(0.98);
+  transition:
+    opacity 700ms var(--ease-out),
+    transform 700ms var(--ease-out);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+.reveal[data-in="true"] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Cursor spotlight: MotionRoot sets --mx / --my on whichever .spot is under the pointer. */
+.spot {
+  position: relative;
+}
+.spot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 280ms ease;
+  background: radial-gradient(
+    380px circle at var(--mx, 50%) var(--my, 50%),
+    rgba(19, 70, 168, 0.1),
+    rgba(201, 138, 94, 0.07) 40%,
+    transparent 70%
+  );
+}
+.dark .spot::after {
+  background: radial-gradient(
+    380px circle at var(--mx, 50%) var(--my, 50%),
+    rgba(108, 156, 240, 0.12),
+    rgba(201, 138, 94, 0.08) 40%,
+    transparent 70%
+  );
+}
+.spot:hover::after {
+  opacity: 1;
+}
+
+.press {
+  transition: transform 160ms var(--ease-spring);
+}
+.press:active {
+  transform: scale(0.96);
+}
+
+@keyframes sheen {
+  0% {
+    transform: translateX(-140%) skewX(-18deg);
+  }
+  60%,
+  100% {
+    transform: translateX(240%) skewX(-18deg);
+  }
+}
+.sheen {
+  position: relative;
+  overflow: hidden;
+}
+.sheen::before {
+  content: "";
+  position: absolute;
+  inset: -20% 0;
+  width: 45%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: sheen 5.5s ease infinite;
+}
+
+@keyframes floaty {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+.floaty {
+  animation: floaty 5s ease-in-out infinite;
+}
+
+@keyframes ping-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+.ping::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  animation: ping-ring 2s var(--ease-out) infinite;
+}
+
+.text-copper {
+  background: var(--copper-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---------- logo mark ---------- */
+@keyframes logo-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.35) rotate(-120deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08) rotate(8deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+.logo-intro {
+  transform-origin: 50% 50%;
+  animation: logo-pop 1100ms var(--ease-out) both;
+}
+@keyframes logo-sweep {
+  0%,
+  55% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}
+.logo-shine {
+  animation: logo-sweep 6s ease infinite;
+}
+
+/* ---------- intro splash ---------- */
+html[data-splash="skip"] .splash {
+  display: none;
+}
+/* Hold the app's CSS entrance animations until the splash lifts (the splash itself lives outside #root). */
+html[data-splash="on"] #root * {
+  animation-play-state: paused !important;
+}
+.splash {
+  background: #050d26;
+  animation: splash-failsafe 600ms ease 7s forwards; /* if scripts fail, it still lifts by itself */
+}
+.splash.splash-exit {
+  pointer-events: none;
+  animation: splash-out 800ms cubic-bezier(0.2, 0.6, 0.2, 1) forwards;
+}
+.splash-bg {
+  background:
+    radial-gradient(60% 55% at 50% 38%, #123a86 0%, #0a1d4d 46%, #050d26 100%),
+    #050d26;
+}
+.splash-letter {
+  opacity: 0;
+  transform: translateY(34px) rotateX(-75deg);
+  transform-origin: 50% 100%;
+  animation: letter-in 760ms var(--ease-out) forwards;
+}
+@keyframes letter-in {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.splash-tag {
+  opacity: 0;
+  animation: fadeInUp 900ms var(--ease-out) 1900ms forwards;
+}
+.splash-bar {
+  opacity: 0;
+  animation: fadeIn 500ms ease 900ms forwards;
+}
+@keyframes splash-load {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes splash-out {
+  to {
+    opacity: 0;
+    transform: scale(1.08);
+    filter: blur(12px);
+  }
+}
+@keyframes splash-failsafe {
+  to {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+
+/* ---------- orbit dashboard ---------- */
+.orbit-stage[data-dragging="true"] {
+  cursor: grabbing !important;
+}
+.orbit-stage:focus-visible {
+  outline: 2px solid var(--copper);
+  outline-offset: 3px;
+}
+.orbit-card {
+  box-shadow:
+    0 28px 60px rgba(2, 6, 20, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 0 70px rgba(201, 138, 94, var(--glow, 0));
+}
+.orbit-card > .orbit-dim {
+  background: #050d26;
+  opacity: var(--dim, 0);
+}
+.orbit-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(19, 70, 168, 0.35) transparent;
+  overscroll-behavior: contain;
+}
+.hud-title {
+  animation: hud-in 420ms var(--ease-out) both;
+}
+@keyframes hud-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    letter-spacing: 0.04em;
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Panels are laid out 640px wide on the ring whatever the viewport is, so the viewport-keyed grids
+   inside them are folded to two columns instead of three or four. */
+.orbit-card [class*="xl:grid-cols-"],
+.orbit-card [class*="lg:grid-cols-"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+/* Numbers painted on the orbit floor in front of each panel */
+.floor-tag {
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: rgba(246, 220, 195, 0.75);
+  border: 2px solid rgba(241, 200, 166, 0.35);
+  background: rgba(201, 138, 94, 0.1);
+  transition:
+    color 300ms ease,
+    background 300ms ease,
+    border-color 300ms ease,
+    box-shadow 300ms ease;
+}
+.floor-tag[data-on="true"] {
+  color: #fff;
+  border-color: rgba(241, 200, 166, 0.95);
+  background: rgba(201, 138, 94, 0.45);
+  box-shadow: 0 0 40px rgba(241, 200, 166, 0.55);
+}
+
+/* Grid -> orbit: the cards drop away one after another before the ring forms. */
+.deck-leaving > * {
+  animation: deck-out 380ms cubic-bezier(0.2, 0.6, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 32ms);
+}
+@keyframes deck-out {
+  to {
+    opacity: 0;
+    transform: translate3d(0, 24px, 0) scale(0.88);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  .sheen::before,
+  .floaty,
+  .ping::before,
+  .logo-intro,
+  .logo-shine {
+    animation: none !important;
+  }
+  .stagger > *,
+  .mc-row {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}

@@ -1,8 +1,9 @@
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { LogOut, Menu as MenuIcon, MoonStar, Search, Sun } from "lucide-react";
+import { Bell, LogOut, Menu as MenuIcon, MoonStar, Search, Sun } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { useTheme, type ThemeMode } from "../../lib/useTheme";
+import { useCompliance } from "../../lib/ComplianceContext";
 import { Avatar, IconButton, Kbd, Label, Menu, Tooltip } from "../ui";
 import { showCommandPalette, isMac } from "./CommandPalette";
 import { Logo } from "./Logo";
@@ -32,6 +33,28 @@ function ThemeToggle() {
           </motion.span>
         </AnimatePresence>
       </button>
+    </Tooltip>
+  );
+}
+
+/** Link to the notification inbox with the unread count. */
+function NotificationBell() {
+  const { unread, me } = useCompliance();
+  if (!me) return null;
+  return (
+    <Tooltip content={unread ? `${unread} unread notification${unread === 1 ? "" : "s"}` : "Notifications"}>
+      <Link
+        to="/compliance/notifications"
+        aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
+        className="relative w-8 h-8 rounded-md flex items-center justify-center text-ink2 hover:text-ink hover:bg-panel2 transition-colors"
+      >
+        <Bell size={16} />
+        {unread > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-crit text-white text-[10px] font-semibold leading-4 text-center tabular">
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+      </Link>
     </Tooltip>
   );
 }
@@ -115,6 +138,7 @@ export function Header({ onMenu }: { onMenu: () => void }) {
             </Label>
           </span>
         )}
+        <NotificationBell />
         <ThemeToggle />
         <UserMenu />
       </div>

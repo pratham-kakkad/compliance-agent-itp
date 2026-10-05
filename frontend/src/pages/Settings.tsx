@@ -348,7 +348,7 @@ export function Settings() {
 
   return (
     <div className="max-w-[960px]">
-      <PageHeader title="Settings" description="Organization-wide preferences for Intuitive Compliance Hub" />
+      <PageHeader title="Settings" description="Organization-wide preferences for INT Comply" />
 
       {error && (
         <Banner

@@ -1,7 +1,7 @@
 [project]
 name = "compliance-hub"
 version = "0.2.0"
-description = "Intuitive Compliance Hub — a general compliance platform with pluggable agents (Meetings, Attendance, ...)"
+description = "INT Comply — a general compliance platform with pluggable agents (Meetings, Attendance, ...)"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi",

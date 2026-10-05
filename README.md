@@ -1,4 +1,4 @@
-# Intuitive Compliance Hub
+# INT Comply
 
 A general compliance platform: one shell (auth, dashboard, nav) with
 self-contained "agents" plugged into it, each owning its own tables,
@@ -101,10 +101,135 @@ the frontend — not touching the others.
   punch-log import) — with the cross-agent Assistant and Settings pinned at
   the bottom, above the collapse control. Light by default, dark mode via the sidebar
   toggle.
-- **Brand**: the official logo lives in `brand/` (the original PNG plus
-  traced SVG versions for light and dark backgrounds and an app icon). The
-  UI draws the same vector paths inline (`frontend/src/components/shell/Logo.tsx`)
-  so the logo follows the theme's text color.
+- **Motion and 3D**: the UI is animated throughout (`frontend/src/motion.css`
+  plus Framer Motion, and `three` for the 3D scenes):
+  - `components/brand/` — the INT Comply logo as inline SVG (`Logo.tsx`,
+    paths in `markPaths.ts`) and the intro splash (`Splash.tsx`): the 3D mark
+    spins in, the name types in, then it lifts away. Once per browser
+    session; click, Esc or Enter skips it; a CSS failsafe lifts it after
+    about 7 s if scripts fail.
+  - `components/three/LogoScene.tsx` — the Three.js scene (the logo extruded
+    into a metallic 3D object, orbit rings, particles) used by the splash,
+    the sign-in card and the orbit view. Falls back to the flat logo without
+    WebGL.
+  - `components/orbit/` — the **orbit dashboard**: the Dashboard's panels
+    (`DeckBlock`) are shown by `BlockDeck` either as the normal grid or
+    wrapped around a rotating 3D ring with a tick-mark dial on the floor.
+    Scroll, drag, arrow keys, the arrows, the dots or a click on a side
+    panel turn it one panel at a time; **Unwrap** unrolls it into the grid
+    and **Wrap into orbit** brings it back (choice remembered in
+    localStorage `ic-deck-view`). Below 900 px wide the grid is always used.
+  - `components/motion/` — number count-ups, cursor spotlight on cards,
+    scroll-reveal. Everything respects `prefers-reduced-motion`.
+- **Brand**: INT Comply, "Integrated Compliance Solutions". The logo (navy
+  and copper star plus wordmark) was traced from the supplied artwork into
+  transparent SVGs: `brand/int-comply-*.svg` (original image:
+  `brand/int-comply-logo-source.png`; copies in `frontend/public/brand/`).
+  The accent colour tokens in `frontend/src/index.css` and the copper tokens
+  in `motion.css` come from it. The older Intuitive logo files in `brand/`
+  are no longer used.
+
+## Compliance engine
+
+A generic engine for any compliance requirement: define it, say who it applies
+to, say what proof is needed, review the proof, and handle people who don't
+comply. Nothing in it is specific to one kind of compliance; "repost a LinkedIn
+post", "acknowledge a policy", "upload a training certificate" are the same
+machinery with different proof requirements. Code: `app/compliance/`; UI:
+`frontend/src/pages/compliance/`.
+
+### The model
+
+| Concept | Meaning |
+|---|---|
+| **Compliance** | The rule: what, by when, what proof, how it is reviewed, what happens if ignored. Draft, then Active (published), Paused, Closed or Archived. |
+| **Audience rules** | Who it applies to: a person, team, department, role, everyone below a manager, or the whole organization. *Include* and *exclude* rules; each carries a **participation**: *must act*, *optional* or *for information*. The strongest wins when several match; exclude beats include. |
+| **Obligation** | One row per person per compliance. Status, deadline, evidence, review and escalation all hang off it, so ten assigned people are ten independent lifecycles. |
+| **Submission / evidence** | What the person proved, versioned (a resubmission is a new version). Evidence slots are a schema on the compliance: text, file, link, confirmation tick-box, or one-of-a-list, each mandatory or optional, with constraints (length, file types). |
+| **Review** | None (completes on submit), the person's manager, a named reviewer, or anyone allowed to review. A reviewer can never review their own submission. |
+
+*"Created for 10 people but only 3 must act"*: give the 3 *must act* and the
+others *for information*. Only *must act* people count towards progress and are
+chased by escalation. A compliance's **completion rule** can be everyone who
+must act, at least N, a percentage, or any one.
+
+Lifecycle of an obligation: not started → in progress → submitted → under review
+→ completed, with *changes needed* sending it back, and *waived* / *cancelled*
+as exits. *Overdue* and *non-compliant* are flags on top of that, not extra
+states. Editing a published compliance creates a **new version**; people keep the
+rules they were assigned under unless the editor chooses to move them.
+
+### Access control
+
+- **Roles** hold grants of `resource + action + scope`. Resources: dashboard,
+  compliance, submission, user, team, role, report, analytics, settings,
+  audit_log (plus meeting / attendance compliance, which only control the menu).
+  Actions: view, create, edit, delete, assign, approve, reject, submit, export,
+  configure, waive. **Scopes**: self, direct reports, whole reporting line, team,
+  department, organization, or "records I created".
+- Built-in roles (editable, not deletable): **Super Admin**, **Compliance Admin**,
+  **Compliance Manager**, **Manager** (held automatically by anyone with direct
+  reports), **Employee** (held by everyone), **Auditor**. Create your own on
+  *Roles & access*.
+- **Per-person overrides** add one allow or one deny; a deny always wins.
+- **Record rules** are row-level conditions on top of scopes: *allow* rules widen
+  what a role sees, *restrictive* rules narrow it (e.g. "managers never see
+  category HR"). They are structured data, never SQL.
+- `COMPLIANCE_SUPER_ADMINS` (comma-separated e-mails; default is the demo
+  manager) are always Super Admins, so a fresh install has someone who can set up
+  access. **Set it to your own administrators in production.**
+- Every endpoint goes through one policy object (`app/compliance/policy.py`);
+  every list, count and chart takes its row filter from it, so a manager's
+  dashboard only describes their own people. A request for a record you can't
+  see answers 404, the same as for one that doesn't exist.
+
+### Non-compliance and escalation
+
+Each compliance carries escalation rules (data, not code): a trigger (*N days
+before the deadline*, *on the deadline*, *N days after*, *rejected for N days*,
+*review waiting N days*) and actions (remind the person, tell the manager or the
+management chain, notify named people, nudge reviewers, mark non-compliant, flag
+as a defaulter). Presets: *Standard*, *Strict*, *None*. A background pass runs
+every `COMPLIANCE_TICK_MINUTES` (also *Audit log → Run deadline check now*) and
+each action fires at most once per person (unique key in `escalation_log`), so
+restarts and retries never double-send. The **defaulter scoreboard** ranks people
+by incidents (late, overdue, non-compliant or flagged), weighted by priority;
+three or more makes a repeat offender, and a manager only sees their own line.
+
+### Audit and notifications
+
+Every important action writes an `audit_events` row in the same transaction
+(who, what, which record, before and after). The table rejects UPDATE and DELETE
+in the database itself, and each row stores a hash chained to the previous one;
+*Audit log → Verify integrity* recomputes the chain. In-app notifications are
+real (bell in the header); e-mail is recorded as intent
+(`notifications.email_status = 'pending'`) for a sender to pick up later.
+
+### Evidence files
+
+Stored on disk under `EVIDENCE_DIR` (a Docker volume), metadata in the database.
+Extension allow-list, size limit (`EVIDENCE_MAX_MB`), content must match the
+extension, duplicates across people are flagged to the reviewer, downloads go
+through an authorized endpoint as attachments. **No virus scanner is wired in
+yet**: `app/compliance/evidence.py: scan()` is the hook, and files carry
+`scan_status = not_scanned` until you add one.
+
+### API
+
+Everything is under `/compliance` (user-facing) and `/compliance/admin`
+(users, departments and teams, roles, record rules, audit, scheduler); the full
+list is in the interactive docs at `/docs`. Sign-in is the app's existing one
+(Microsoft work account or demo login); *Administration → Users* pre-provisions
+people, there are no local passwords.
+
+### Not built yet
+
+Recurring (repeating) compliances, saving a draft submission, an e-mail sender,
+a virus scanner, automatic verifiers that complete a compliance by themselves
+(the hook is `compliance_types.verifier_key`; Meetings and Attendance are not
+yet expressed as compliance types), delegation while a reviewer is away, legal
+hold / retention rules, MFA. Meetings and Attendance keep their own access rules;
+the permissions for them only control menu visibility.
 
 ## Time zones
 

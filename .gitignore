@@ -20,3 +20,4 @@ frontend/node_modules/
 # Editor/OS noise
 .DS_Store
 Thumbs.db
+data/

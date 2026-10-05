@@ -7,6 +7,7 @@ import { useTheme } from "../../lib/useTheme";
 import { usePersonModal } from "../PersonModal";
 import { Avatar, Kbd } from "../ui";
 import { ALL_NAV } from "./nav";
+import { useVisibleNav } from "./useVisibleNav";
 
 function isEditable(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
@@ -31,6 +32,7 @@ export function CommandPalette() {
   const { directory, logout } = useAuth();
   const { theme, toggle } = useTheme();
   const openPerson = usePersonModal();
+  const pages = useVisibleNav(ALL_NAV);
 
   useEffect(() => {
     openPalette = () => setOpen(true);
@@ -72,11 +74,11 @@ export function CommandPalette() {
       <Command.List className="max-h-[min(60vh,380px)] overflow-y-auto pb-2 scroll-py-2">
         <Command.Empty className="py-10 text-center text-sm text-ink2">No results found.</Command.Empty>
         <Command.Group heading="Pages" className={groupCls}>
-          {ALL_NAV.flatMap((s) => s.items).map((item) => (
+          {pages.flatMap((s) => s.items).map((item) => (
             <Command.Item key={item.to} value={`page ${item.label} ${item.to}`} onSelect={() => run(() => navigate(item.to))} className={itemCls}>
               <item.icon size={16} className="text-ink2" aria-hidden />
               <span className="flex-1">{item.label}</span>
-              <span className="text-xs text-ink3">{(() => { const s = ALL_NAV.find((x) => x.items.includes(item)); return s?.label ?? s?.paletteLabel ?? "Overview"; })()}</span>
+              <span className="text-xs text-ink3">{(() => { const s = pages.find((x) => x.items.includes(item)); return s?.label ?? s?.paletteLabel ?? "Overview"; })()}</span>
             </Command.Item>
           ))}
         </Command.Group>

@@ -16,6 +16,9 @@ from app.api.meetings import router as meetings_router
 from app.api.orgchart import router as orgchart_router
 from app.api.people import router as people_router
 from app.attendance.api import router as attendance_router
+from app.compliance.admin_api import router as compliance_admin_router
+from app.compliance.api import register_error_handlers as register_compliance_errors, router as compliance_router
+import app.compliance.models  # noqa: F401 -- registers the compliance engine's tables
 from app.auth import microsoft_oauth
 import app.chat.models  # noqa: F401 -- registers the assistant's embedding-cache table
 from app.config import settings
@@ -78,9 +81,28 @@ def _reconcile_attendance_timezone() -> None:
         db.close()
 
 
+async def _compliance_tick_loop() -> None:
+    """Re-evaluates deadlines and escalations on a timer (see app/compliance/escalation.py)."""
+    from app.compliance.escalation import run_and_commit
+
+    def _once() -> None:
+        db = SessionLocal()
+        try:
+            run_and_commit(db)
+        except Exception:
+            pass  # run_and_commit already logged it; the next pass retries
+        finally:
+            db.close()
+
+    while True:
+        await asyncio.to_thread(_once)
+        await asyncio.sleep(settings.compliance_tick_minutes * 60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     seed_directory()
+    seed_compliance_system()
     if settings.attendance_timezone_check_on_startup:
         await asyncio.to_thread(_reconcile_attendance_timezone)
 
@@ -102,13 +124,19 @@ async def lifespan(app: FastAPI):
         # Fire and forget: the app serves requests while the index builds.
         asyncio.get_running_loop().run_in_executor(None, _warm_attendance_index)
 
+    compliance_task = None
+    if settings.compliance_tick_minutes > 0:
+        compliance_task = asyncio.create_task(_compliance_tick_loop())
+
     yield
 
     if sync_task:
         sync_task.cancel()
+    if compliance_task:
+        compliance_task.cancel()
 
 
-app = FastAPI(title="Intuitive Compliance Hub", lifespan=lifespan)
+app = FastAPI(title="INT Comply", lifespan=lifespan)
 
 
 def seed_directory() -> None:
@@ -122,6 +150,19 @@ def seed_directory() -> None:
             if entry["email"] not in existing:
                 db.add(OrgUser(**entry, is_demo=True))
         db.commit()
+    finally:
+        db.close()
+
+
+def seed_compliance_system() -> None:
+    """Idempotent: creates the built-in roles and compliance types if missing."""
+    from app.compliance.seed import seed_system_data
+
+    db = SessionLocal()
+    try:
+        seed_system_data(db)
+    except Exception:
+        logging.getLogger("app.compliance").warning("Couldn't seed the compliance roles and types", exc_info=True)
     finally:
         db.close()
 
@@ -145,6 +186,9 @@ app.include_router(dashboard_router)
 app.include_router(chat_router)
 app.include_router(attendance_router)
 app.include_router(settings_router)
+app.include_router(compliance_router)
+app.include_router(compliance_admin_router)
+register_compliance_errors(app)
 
 class SPAStaticFiles(StaticFiles):
     """Serves the built SPA; client-side routes (extension-less paths like

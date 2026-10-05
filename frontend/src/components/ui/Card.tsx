@@ -20,7 +20,7 @@ export function Card({
   return (
     <As
       className={clsx(
-        "bg-panel border border-line rounded-lg shadow-xs",
+        "spot bg-panel border border-line rounded-lg shadow-xs",
         interactive && "cursor-pointer transition-[border-color,box-shadow] duration-100 ease-standard hover:border-line-strong hover:shadow-md",
         PADDING[padding],
         className

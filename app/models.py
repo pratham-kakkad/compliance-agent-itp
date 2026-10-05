@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,12 @@ class OrgUser(Base):
     # dev-login will accept; real accounts (created by an actual Microsoft
     # login) are the only ones the Graph sync loop ever touches.
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Compliance engine (app/compliance/): the person's department, and whether
+    # they can sign in / be assigned compliance. Deactivating keeps all history.
+    department_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("departments.id", ondelete="SET NULL"), nullable=True
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default=text("true"))
 
 
 class MeetingSeries(Base):

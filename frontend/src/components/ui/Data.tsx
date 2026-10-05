@@ -174,8 +174,8 @@ export function StatCard({
     <Comp
       onClick={onClick}
       className={clsx(
-        "bg-panel border border-line rounded-lg shadow-xs p-4 sm:p-5 flex flex-col items-stretch text-left min-w-0 w-full",
-        onClick && "transition-[border-color,box-shadow] duration-100 hover:border-line-strong hover:shadow-md",
+        "spot bg-panel border border-line rounded-lg shadow-xs p-4 sm:p-5 flex flex-col items-stretch text-left min-w-0 w-full",
+        onClick && "transition-[border-color,box-shadow,transform] duration-200 hover:border-line-strong hover:shadow-md hover:-translate-y-0.5",
         className
       )}
     >

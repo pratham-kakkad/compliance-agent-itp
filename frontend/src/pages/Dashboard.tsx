@@ -23,6 +23,8 @@ import {
   type Column,
 } from "../components/ui";
 import { AttendanceDonut, CountBarChart, CountTrendChart, RatedBarChart, TrendChart } from "../components/charts";
+import { BlockDeck } from "../components/orbit/BlockDeck";
+import type { DeckBlock } from "../components/orbit/types";
 import { usePersonModal } from "../components/PersonModal";
 import { useMeetingPanel } from "../components/MeetingPanel";
 
@@ -35,38 +37,40 @@ function greeting(): string {
   return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
 }
 
-function ChartsSkeleton() {
+/** Placeholder card shown in a panel's place while its data loads. */
+function PanelSkeleton() {
   return (
-    <div className="grid lg:grid-cols-3 gap-4">
-      <Card className="lg:col-span-2">
-        <Skeleton className="h-4 w-40 mb-4" />
-        <Skeleton className="h-[200px] w-full" />
-      </Card>
-      <Card>
-        <Skeleton className="h-4 w-40 mb-4" />
-        <Skeleton className="h-[200px] w-[200px] mx-auto !rounded-full" />
-      </Card>
-    </div>
+    <Card className="h-full">
+      <Skeleton className="h-4 w-40 mb-4" />
+      <Skeleton className="h-[160px] w-full" />
+    </Card>
   );
 }
 
-function MeetingsSection() {
+function PanelError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <Card className="h-full">
+      <ErrorState message={message} onRetry={onRetry} />
+    </Card>
+  );
+}
+
+/** Every panel of the dashboard, as the blocks the grid / orbit ring show. Each carries its own loading and error state. */
+function useDashboardBlocks(): DeckBlock[] {
   const navigate = useNavigate();
   const { displayName } = useAuth();
   const openMeeting = useMeetingPanel();
   const openPerson = usePersonModal();
-  const { data, error, initialLoading, reload } = useApi<DashboardPayload>("/dashboard");
-  const team = useApi<PersonListItem[]>(data?.has_reports ? "/people" : null);
+  const meetings = useApi<DashboardPayload>("/dashboard");
+  const team = useApi<PersonListItem[]>(meetings.data?.has_reports ? "/people" : null);
+  const attendance = useApi<AttendanceDashboardPayload>("/attendance/dashboard");
 
-  if (error && !data) return <Card><ErrorState message={error.message} onRetry={reload} /></Card>;
-  if (initialLoading || !data) {
-    return (
-      <div className="flex flex-col gap-4">
-        <StatGridSkeleton />
-        <ChartsSkeleton />
-      </div>
-    );
-  }
+  const blocks: DeckBlock[] = [];
+  const m = meetings.data;
+  const mFail = meetings.error && !m;
+  const mWait = !mFail && (meetings.initialLoading || !m);
+  const mPanel = (node: () => React.ReactNode) =>
+    mFail ? <PanelError message={meetings.error!.message} onRetry={meetings.reload} /> : mWait ? <PanelSkeleton /> : node();
 
   const concerns: Column<DashboardPayload["top_concern_series"][number]>[] = [
     {
@@ -87,120 +91,161 @@ function MeetingsSection() {
     {
       key: "person",
       header: "Person",
-      cell: (m) => (
+      cell: (x) => (
         <div className="flex items-center gap-2.5 min-w-0">
-          <Avatar name={displayName(m.email)} size={24} />
-          <span className="font-semibold text-ink truncate">{displayName(m.email)}</span>
+          <Avatar name={displayName(x.email)} size={24} />
+          <span className="font-semibold text-ink truncate">{displayName(x.email)}</span>
         </div>
       ),
     },
-    { key: "missed", header: "Missed", align: "right", cell: (m) => <span className="text-ink2">{m.missed}/{m.total}</span> },
-    { key: "rate", header: "Attendance", align: "right", cell: (m) => <RateMeter rate={m.attendance_rate} /> },
+    { key: "missed", header: "Missed", align: "right", cell: (x) => <span className="text-ink2">{x.missed}/{x.total}</span> },
+    { key: "rate", header: "Attendance", align: "right", cell: (x) => <RateMeter rate={x.attendance_rate} /> },
   ];
 
-  const noOwnMeetings = data.me.required_total === 0;
-  const trend = data.trend.map((t) => t.attendance_rate);
-
-  return (
-    <div className="flex flex-col gap-4">
+  // ---------------- Meetings ----------------
+  blocks.push({
+    id: "m-stats",
+    title: "Meeting compliance",
+    kicker: "Meetings",
+    span: 2,
+    gridHeading: <SectionHeader title="Meetings" icon={CalendarClock} description="Teams meeting attendance for you and your reports" />,
+    node: mFail ? (
+      <PanelError message={meetings.error!.message} onRetry={meetings.reload} />
+    ) : mWait || !m ? (
+      <StatGridSkeleton />
+    ) : (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="My attendance rate"
           icon={CalendarCheck2}
-          value={pct(data.me.attendance_rate)}
-          tone={rateTone(data.me.attendance_rate)}
-          animateValue={noOwnMeetings ? null : ratePct(data.me.attendance_rate)}
+          value={pct(m.me.attendance_rate)}
+          tone={rateTone(m.me.attendance_rate)}
+          animateValue={m.me.required_total === 0 ? null : ratePct(m.me.attendance_rate)}
           formatValue={formatPct}
-          foot={noOwnMeetings ? "No required meetings yet" : `${data.me.required_attended} of ${data.me.required_total} required meetings`}
+          foot={m.me.required_total === 0 ? "No required meetings yet" : `${m.me.required_attended} of ${m.me.required_total} required meetings`}
         />
         <StatCard
           label="Direct reports"
           icon={Users2}
-          value={String(data.direct_report_count)}
-          animateValue={data.direct_report_count}
+          value={String(m.direct_report_count)}
+          animateValue={m.direct_report_count}
           formatValue={formatCount}
-          foot={`${data.total_report_count} total in your org`}
-          onClick={data.has_reports ? () => navigate("/team") : undefined}
+          foot={`${m.total_report_count} total in your org`}
+          onClick={m.has_reports ? () => navigate("/team") : undefined}
         />
         <StatCard
           label="Team attendance rate"
           icon={TrendingUp}
-          value={data.team ? pct(data.team.attendance_rate) : "—"}
-          tone={data.team ? rateTone(data.team.attendance_rate) : "neutral"}
-          animateValue={data.team ? ratePct(data.team.attendance_rate) : null}
+          value={m.team ? pct(m.team.attendance_rate) : "—"}
+          tone={m.team ? rateTone(m.team.attendance_rate) : "neutral"}
+          animateValue={m.team ? ratePct(m.team.attendance_rate) : null}
           formatValue={formatPct}
-          trend={data.team ? trend : undefined}
-          foot={data.team ? `${data.team.attended} of ${data.team.total} required meetings` : "No direct reports"}
+          trend={m.team ? m.trend.map((t) => t.attendance_rate) : undefined}
+          foot={m.team ? `${m.team.attended} of ${m.team.total} required meetings` : "No direct reports"}
         />
         <StatCard
           label="Open concerns"
           icon={AlertTriangle}
-          value={String(data.top_concern_series.length)}
-          tone={data.top_concern_series.length ? "crit" : "good"}
-          animateValue={data.top_concern_series.length}
+          value={String(m.top_concern_series.length)}
+          tone={m.top_concern_series.length ? "crit" : "good"}
+          animateValue={m.top_concern_series.length}
           formatValue={formatCount}
           foot="Meeting series with a required miss"
           onClick={() => navigate("/meetings")}
         />
       </div>
+    ),
+  });
 
-      <div className="grid lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2">
-          <CardHeader title="Attendance trend" description="Required meetings, weekly" />
-          <TrendChart data={data.trend.map((t) => ({ week_start: t.week_start, rate: t.attendance_rate }))} label="Attendance" />
-        </Card>
-        <Card>
-          <CardHeader title="My required meetings" description="Across all series you're required at" />
-          <AttendanceDonut attended={data.me.required_attended} total={data.me.required_total} />
-        </Card>
-      </div>
+  blocks.push({
+    id: "m-trend",
+    title: "Attendance trend",
+    kicker: "Meetings",
+    node: mPanel(() => (
+      <Card className="h-full">
+        <CardHeader title="Attendance trend" description="Required meetings, weekly" />
+        <TrendChart data={m!.trend.map((t) => ({ week_start: t.week_start, rate: t.attendance_rate }))} label="Attendance" />
+      </Card>
+    )),
+  });
 
-      <div className="grid lg:grid-cols-2 gap-4">
-        <Card padding="none" className="overflow-hidden">
-          <CardHeader
-            divider
-            title="Meetings needing attention"
-            description="Series with the most required absences"
-            actions={<Button size="sm" variant="ghost" trailingIcon={ArrowRight} onClick={() => navigate("/meetings")}>View all</Button>}
-          />
-          <DataTable
-            columns={concerns}
-            rows={data.top_concern_series}
-            getRowKey={(s) => s.series_id}
-            onRowClick={(s) => openMeeting(s.series_id)}
-            rowLabel={(s) => `Open ${s.title}`}
-            rank
-            empty={<EmptyState icon={CheckCircle2} title="No concerns" description="Every required attendee is showing up." compact />}
-          />
-        </Card>
-        <Card padding="none" className="overflow-hidden">
-          <CardHeader
-            divider
-            title="People to focus on"
-            description="Reports with the most missed required meetings"
-            actions={data.has_reports && <Button size="sm" variant="ghost" trailingIcon={ArrowRight} onClick={() => navigate("/team")}>View team</Button>}
-          />
-          <DataTable
-            columns={focus}
-            rows={data.top_members_to_focus}
-            getRowKey={(m) => m.email}
-            onRowClick={(m) => openPerson(m.email)}
-            rowLabel={(m) => `Open ${displayName(m.email)}`}
-            rank
-            empty={
-              <EmptyState
-                icon={data.has_reports ? CheckCircle2 : Users2}
-                title={data.has_reports ? "Your team is fully compliant" : "No direct reports"}
-                description={data.has_reports ? "Nobody has missed a required meeting." : "People who report to you will show up here."}
-                compact
-              />
-            }
-          />
-        </Card>
-      </div>
+  blocks.push({
+    id: "m-required",
+    title: "My required meetings",
+    kicker: "Meetings",
+    node: mPanel(() => (
+      <Card className="h-full">
+        <CardHeader title="My required meetings" description="Across all series you're required at" />
+        <AttendanceDonut attended={m!.me.required_attended} total={m!.me.required_total} />
+      </Card>
+    )),
+  });
 
-      {data.has_reports && (
-        <Card>
+  blocks.push({
+    id: "m-concerns",
+    title: "Meetings needing attention",
+    kicker: "Meetings",
+    node: mPanel(() => (
+      <Card padding="none" className="h-full overflow-hidden">
+        <CardHeader
+          divider
+          title="Meetings needing attention"
+          description="Series with the most required absences"
+          actions={<Button size="sm" variant="ghost" trailingIcon={ArrowRight} onClick={() => navigate("/meetings")}>View all</Button>}
+        />
+        <DataTable
+          columns={concerns}
+          rows={m!.top_concern_series}
+          getRowKey={(s) => s.series_id}
+          onRowClick={(s) => openMeeting(s.series_id)}
+          rowLabel={(s) => `Open ${s.title}`}
+          rank
+          empty={<EmptyState icon={CheckCircle2} title="No concerns" description="Every required attendee is showing up." compact />}
+        />
+      </Card>
+    )),
+  });
+
+  blocks.push({
+    id: "m-focus",
+    title: "People to focus on",
+    kicker: "Meetings",
+    node: mPanel(() => (
+      <Card padding="none" className="h-full overflow-hidden">
+        <CardHeader
+          divider
+          title="People to focus on"
+          description="Reports with the most missed required meetings"
+          actions={m!.has_reports && <Button size="sm" variant="ghost" trailingIcon={ArrowRight} onClick={() => navigate("/team")}>View team</Button>}
+        />
+        <DataTable
+          columns={focus}
+          rows={m!.top_members_to_focus}
+          getRowKey={(x) => x.email}
+          onRowClick={(x) => openPerson(x.email)}
+          rowLabel={(x) => `Open ${displayName(x.email)}`}
+          rank
+          empty={
+            <EmptyState
+              icon={m!.has_reports ? CheckCircle2 : Users2}
+              title={m!.has_reports ? "Your team is fully compliant" : "No direct reports"}
+              description={m!.has_reports ? "Nobody has missed a required meeting." : "People who report to you will show up here."}
+              compact
+            />
+          }
+        />
+      </Card>
+    )),
+  });
+
+  if (m?.has_reports) {
+    blocks.push({
+      id: "m-team",
+      title: "Team breakdown",
+      kicker: "Meetings",
+      span: 2,
+      node: (
+        <Card className="h-full">
           <CardHeader title="Team attendance breakdown" description="Required meetings, all visible reports — lowest first" />
           {team.error ? (
             <ErrorState compact message={team.error.message} onRetry={team.reload} />
@@ -218,57 +263,76 @@ function MeetingsSection() {
             />
           )}
         </Card>
-      )}
-    </div>
-  );
-}
-
-function AttendanceSection() {
-  const navigate = useNavigate();
-  const { data, error, initialLoading, reload } = useApi<AttendanceDashboardPayload>("/attendance/dashboard");
-
-  if (error && !data) return <Card><ErrorState message={error.message} onRetry={reload} /></Card>;
-  if (initialLoading || !data) {
-    return (
-      <div className="flex flex-col gap-4">
-        <StatGridSkeleton />
-        <ChartsSkeleton />
-      </div>
-    );
+      ),
+    });
   }
 
-  const s = data.summary;
+  // ---------------- Attendance ----------------
+  const a = attendance.data;
+  const aFail = attendance.error && !a;
+  const aWait = !aFail && (attendance.initialLoading || !a);
+  const aPanel = (node: () => React.ReactNode) =>
+    aFail ? <PanelError message={attendance.error!.message} onRetry={attendance.reload} /> : aWait ? <PanelSkeleton /> : node();
 
-  return (
-    <div className="flex flex-col gap-4">
+  blocks.push({
+    id: "a-stats",
+    title: "Attendance compliance",
+    kicker: "Attendance",
+    span: 2,
+    gridHeading: <SectionHeader title="Attendance" icon={Fingerprint} description="Biometric punch-log compliance" />,
+    node: aFail ? (
+      <PanelError message={attendance.error!.message} onRetry={attendance.reload} />
+    ) : aWait || !a ? (
+      <StatGridSkeleton />
+    ) : (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatCard label="Employees tracked" icon={Fingerprint} value={String(s.employee_count)} animateValue={s.employee_count} formatValue={formatCount} foot="On biometric devices" onClick={() => navigate("/attendance")} />
-        <StatCard label="Days tracked" icon={CalendarDays} value={String(s.total_days_tracked)} animateValue={s.total_days_tracked} formatValue={formatCount} foot="Across every employee" />
-        <StatCard label="Departments" icon={Building2} value={String(data.by_department.length)} animateValue={data.by_department.length} formatValue={formatCount} foot="With tracked attendance" />
+        <StatCard label="Employees tracked" icon={Fingerprint} value={String(a.summary.employee_count)} animateValue={a.summary.employee_count} formatValue={formatCount} foot="On biometric devices" onClick={() => navigate("/attendance")} />
+        <StatCard label="Days tracked" icon={CalendarDays} value={String(a.summary.total_days_tracked)} animateValue={a.summary.total_days_tracked} formatValue={formatCount} foot="Across every employee" />
+        <StatCard label="Departments" icon={Building2} value={String(a.by_department.length)} animateValue={a.by_department.length} formatValue={formatCount} foot="With tracked attendance" />
       </div>
+    ),
+  });
 
-      <div className="grid lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2">
-          <CardHeader title="Attendance trend" description="Days tracked, weekly" />
-          <CountTrendChart data={data.trend.map((t) => ({ week_start: t.week_start, count: t.days_tracked }))} label="Days tracked" />
-        </Card>
-        <Card>
-          <CardHeader title="By department" description="Days tracked per department" />
-          {data.by_department.length ? (
-            <CountBarChart name="Days tracked" data={data.by_department.map((d) => ({ label: d.department, count: d.days_tracked }))} />
-          ) : (
-            <EmptyState icon={Building2} title="No department data yet" compact />
-          )}
-        </Card>
-      </div>
-    </div>
-  );
+  blocks.push({
+    id: "a-trend",
+    title: "Days tracked",
+    kicker: "Attendance",
+    node: aPanel(() => (
+      <Card className="h-full">
+        <CardHeader title="Attendance trend" description="Days tracked, weekly" />
+        <CountTrendChart data={a!.trend.map((t) => ({ week_start: t.week_start, count: t.days_tracked }))} label="Days tracked" />
+      </Card>
+    )),
+  });
+
+  blocks.push({
+    id: "a-dept",
+    title: "By department",
+    kicker: "Attendance",
+    node: aPanel(() => (
+      <Card className="h-full">
+        <CardHeader title="By department" description="Days tracked per department" />
+        {a!.by_department.length ? (
+          <CountBarChart name="Days tracked" data={a!.by_department.map((d) => ({ label: d.department, count: d.days_tracked }))} />
+        ) : (
+          <EmptyState icon={Building2} title="No department data yet" compact />
+        )}
+      </Card>
+    )),
+  });
+
+  return blocks;
+}
+
+function DashboardDeck() {
+  const blocks = useDashboardBlocks();
+  return <BlockDeck blocks={blocks} />;
 }
 
 export function Dashboard() {
   const { me } = useAuth();
   const firstName = me?.name.split(" ")[0] ?? "";
-  // Remounting the sections re-runs their fetches — simplest reliable refresh.
+  // Remounting the deck re-runs its fetches — simplest reliable refresh.
   const [nonce, setNonce] = useState(0);
 
   return (
@@ -278,14 +342,7 @@ export function Dashboard() {
         description={`${greeting()}, ${firstName} — here's where compliance stands across every agent.`}
         actions={<IconButton icon={RefreshCw} label="Refresh data" variant="secondary" onClick={() => setNonce((n) => n + 1)} />}
       />
-      <section aria-label="Meetings" className="mb-10" key={`m${nonce}`}>
-        <SectionHeader title="Meetings" icon={CalendarClock} description="Teams meeting attendance for you and your reports" />
-        <MeetingsSection />
-      </section>
-      <section aria-label="Attendance" key={`a${nonce}`}>
-        <SectionHeader title="Attendance" icon={Fingerprint} description="Biometric punch-log compliance" />
-        <AttendanceSection />
-      </section>
+      <DashboardDeck key={nonce} />
     </div>
   );
 }

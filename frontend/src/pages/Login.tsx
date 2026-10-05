@@ -6,7 +6,8 @@ import { api } from "../lib/api";
 import { useTheme } from "../lib/useTheme";
 import { duration, ease } from "../lib/motion";
 import { Avatar, Banner, Button, IconButton, Skeleton, Spinner } from "../components/ui";
-import { IntuitiveWordmark } from "../components/shell/Logo";
+import { LogoScene } from "../components/three/LogoScene";
+import { LogoMark } from "../components/brand/Logo";
 import type { DirectoryEntry } from "../types";
 
 function MicrosoftLogo() {
@@ -36,7 +37,7 @@ export function Login() {
   const [pending, setPending] = useState<string | null>(null);
 
   useEffect(() => {
-    document.title = "Sign in · Intuitive Compliance Hub";
+    document.title = "Sign in · INT Comply";
   }, []);
 
   const loadDirectory = useCallback(() => {
@@ -72,10 +73,24 @@ export function Login() {
           transition={{ duration: duration.medium, ease: ease.decelerate }}
           className="w-full max-w-[400px]"
         >
-          <div className="flex flex-col items-center text-center mb-6">
-            <IntuitiveWordmark height={34} className="text-ink" />
-            <h1 className="mt-6 text-2xl font-semibold tracking-[-0.01em] text-ink">Sign in to Intuitive Compliance Hub</h1>
-            <p className="mt-1.5 text-sm text-ink2">Every compliance signal across your org, in one place.</p>
+          <div
+            className="relative mb-6 overflow-hidden rounded-2xl border border-white/10 text-center shadow-lg"
+            style={{ background: "radial-gradient(80% 90% at 50% 30%, #123a86 0%, #0a1d4d 55%, #050d26 100%)" }}
+          >
+            <LogoScene
+              variant="hero"
+              className="h-[220px] w-full"
+              fallback={
+                <div className="flex h-full items-center justify-center">
+                  <LogoMark size={120} tone="dark" intro />
+                </div>
+              }
+            />
+            <div className="relative -mt-4 px-6 pb-6">
+              <p className="text-[11.5px] font-bold uppercase tracking-[0.2em] text-[color:var(--copper-light)]">INT Comply</p>
+              <h1 className="mt-2 text-2xl font-semibold tracking-[-0.01em] text-white">Sign in to INT Comply</h1>
+              <p className="mt-1.5 text-sm text-white/65">Every compliance signal across your org, in one place.</p>
+            </div>
           </div>
 
           <div className="bg-panel border border-line rounded-xl shadow-sm p-6 sm:p-8">
@@ -155,7 +170,7 @@ export function Login() {
             )}
           </div>
 
-          <ul className="mt-8 flex flex-col gap-3 px-2">
+          <ul className="stagger mt-8 flex flex-col gap-3 px-2">
             {FEATURES.map(({ icon: Icon, text }) => (
               <li key={text} className="flex items-center gap-3 text-[13px] text-ink2">
                 <Icon size={16} className="text-ink3 flex-none" aria-hidden />
@@ -166,7 +181,7 @@ export function Login() {
         </motion.div>
       </main>
 
-      <footer className="py-6 text-center text-xs text-ink3">Intuitive Compliance Hub · Secured with Microsoft Entra ID</footer>
+      <footer className="py-6 text-center text-xs text-ink3">INT Comply · Integrated Compliance Solutions · Secured with Microsoft Entra ID</footer>
     </div>
   );
 }

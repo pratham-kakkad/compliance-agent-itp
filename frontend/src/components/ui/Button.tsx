@@ -73,7 +73,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       }}
       className={clsx(
         "ripple-host inline-flex items-center justify-center rounded-md font-semibold whitespace-nowrap select-none",
-        "transition-[background-color,border-color,color,box-shadow] duration-100 ease-standard",
+        "transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-standard active:scale-[0.96]",
         "disabled:opacity-50 disabled:pointer-events-none",
         VARIANTS[variant],
         SIZES[size],
