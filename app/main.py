@@ -17,6 +17,7 @@ from app.api.orgchart import router as orgchart_router
 from app.api.people import router as people_router
 from app.attendance.api import router as attendance_router
 from app.compliance.admin_api import router as compliance_admin_router
+from app.compliance.mail_api import admin_router as compliance_mail_admin_router, router as compliance_mail_router
 from app.compliance.api import register_error_handlers as register_compliance_errors, router as compliance_router
 import app.compliance.models  # noqa: F401 -- registers the compliance engine's tables
 from app.auth import microsoft_oauth
@@ -27,6 +28,8 @@ from app.directory import STUB_DIRECTORY
 from app.models import OrgUser
 import app.org_settings.models  # noqa: F401 -- registers the app_settings table
 from app.org_settings.api import router as settings_router
+from app.org_settings.work_hours import router as work_hours_router
+from app.dashboards.api import router as dashboards_router
 from app.teams_sync import sync_all_real_users
 
 logger = logging.getLogger("app.teams_sync")
@@ -84,6 +87,7 @@ def _reconcile_attendance_timezone() -> None:
 async def _compliance_tick_loop() -> None:
     """Re-evaluates deadlines and escalations on a timer (see app/compliance/escalation.py)."""
     from app.compliance.escalation import run_and_commit
+    from app.compliance.notify import deliver_pending
 
     def _once() -> None:
         db = SessionLocal()
@@ -91,6 +95,11 @@ async def _compliance_tick_loop() -> None:
             run_and_commit(db)
         except Exception:
             pass  # run_and_commit already logged it; the next pass retries
+        try:
+            deliver_pending(db)  # e-mail what the tick (and users' actions) queued; no-op without SMTP
+        except Exception:
+            db.rollback()
+            logging.getLogger("app.compliance").warning("Sending pending notification e-mails failed", exc_info=True)
         finally:
             db.close()
 
@@ -136,7 +145,7 @@ async def lifespan(app: FastAPI):
         compliance_task.cancel()
 
 
-app = FastAPI(title="INT Comply", lifespan=lifespan)
+app = FastAPI(title="Encop", lifespan=lifespan)
 
 
 def seed_directory() -> None:
@@ -186,20 +195,38 @@ app.include_router(dashboard_router)
 app.include_router(chat_router)
 app.include_router(attendance_router)
 app.include_router(settings_router)
+app.include_router(work_hours_router)
+app.include_router(dashboards_router)
 app.include_router(compliance_router)
 app.include_router(compliance_admin_router)
+app.include_router(compliance_mail_router)
+app.include_router(compliance_mail_admin_router)
 register_compliance_errors(app)
 
+# File types the SPA build serves. A path ending in one of these that doesn't
+# exist is a missing asset (404); anything else is a client-side route, even
+# when it contains a dot: /ui/compliance/admin/users/jo@corp.com is a page.
+_ASSET_EXTENSIONS = frozenset(
+    "js mjs css map json png jpg jpeg gif svg ico webp avif woff woff2 ttf otf eot txt webmanifest wasm mp4 webm glb gltf hdr bin".split()
+)
+
+
+def _is_asset_path(path: str) -> bool:
+    last = path.rsplit("/", 1)[-1]
+    return "." in last and last.rsplit(".", 1)[-1].lower() in _ASSET_EXTENSIONS
+
+
 class SPAStaticFiles(StaticFiles):
-    """Serves the built SPA; client-side routes (extension-less paths like
-    /ui/meetings) fall back to index.html so deep links and refreshes work.
-    Missing assets (paths with an extension) still 404."""
+    """Serves the built SPA; client-side routes (like /ui/meetings, or
+    /ui/compliance/admin/users/jo@corp.com) fall back to index.html so deep
+    links and refreshes work. Missing assets (paths ending in a file type
+    from _ASSET_EXTENSIONS) still 404."""
 
     async def get_response(self, path: str, scope):
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:
-            if exc.status_code == 404 and "." not in path.rsplit("/", 1)[-1]:
+            if exc.status_code == 404 and not _is_asset_path(path):
                 return await super().get_response("index.html", scope)
             raise
 

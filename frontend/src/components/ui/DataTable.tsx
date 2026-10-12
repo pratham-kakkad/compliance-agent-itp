@@ -12,6 +12,8 @@ export interface Column<T> {
   width?: string;
   className?: string;
   hideBelow?: "sm" | "md" | "lg";
+  /** Direction the first click on this header sorts in (default asc). */
+  sortFirst?: "asc" | "desc";
 }
 
 const HIDE = { sm: "hidden sm:table-cell", md: "hidden md:table-cell", lg: "hidden lg:table-cell" };
@@ -32,6 +34,8 @@ export function DataTable<T>({
   className,
   caption,
   rank,
+  sort: controlledSort,
+  onSortChange,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -47,11 +51,19 @@ export function DataTable<T>({
   className?: string;
   caption?: string;
   rank?: boolean;
+  /**
+   * Controlled sort (e.g. from useListFilters). When given, the rows are expected to be sorted already:
+   * the table only draws the header state and reports clicks through onSortChange.
+   */
+  sort?: { key: string; dir: "asc" | "desc" };
+  onSortChange?: (sort: { key: string; dir: "asc" | "desc" }) => void;
 }) {
-  const [sort, setSort] = useState(defaultSort ?? null);
+  const [ownSort, setSort] = useState(defaultSort ?? null);
+  const external = controlledSort !== undefined;
+  const sort = external ? controlledSort : ownSort;
 
   const sorted = useMemo(() => {
-    if (!sort) return rows;
+    if (!sort || external) return rows;
     const col = columns.find((c) => c.key === sort.key);
     if (!col?.sortValue) return rows;
     const get = col.sortValue;
@@ -65,13 +77,19 @@ export function DataTable<T>({
       const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
       return sort.dir === "asc" ? cmp : -cmp;
     });
-  }, [rows, sort, columns]);
+  }, [rows, sort, columns, external]);
 
   if (loading && rows.length === 0) return <TableSkeleton rows={skeletonRows} columns={Math.min(columns.length, 5)} />;
   if (!loading && rows.length === 0) return <>{empty}</>;
 
-  const toggleSort = (key: string) =>
-    setSort((s) => (s?.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
+  const toggleSort = (key: string) => {
+    if (external) {
+      const first = columns.find((c) => c.key === key)?.sortFirst ?? "asc";
+      onSortChange?.(sort?.key === key ? { key, dir: sort.dir === "asc" ? "desc" : "asc" } : { key, dir: first });
+      return;
+    }
+    setSort((s) => (s?.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: columns.find((c) => c.key === key)?.sortFirst ?? "asc" }));
+  };
 
   const cellPad = dense ? "py-2" : "py-2.5";
 

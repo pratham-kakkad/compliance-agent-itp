@@ -1,3 +1,5 @@
+import os
+
 import pytest
 import sqlalchemy
 from fastapi.testclient import TestClient
@@ -12,7 +14,10 @@ from app.models import OrgUser
 
 # Tests run against a dedicated *_test database, never the dev DB the demo
 # data lives in — the fixture below drops/recreates its tables every run.
-_TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/meeting_compliance_test"
+# TEST_DB_NAME lets parallel test runs (several people / agents on one Postgres)
+# use separate databases instead of dropping each other's tables.
+_TEST_DB_NAME = os.environ.get("TEST_DB_NAME", "meeting_compliance_test")
+_TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/" + _TEST_DB_NAME
 
 # The startup index warm-up opens its own SessionLocal session, i.e. the DEV
 # database, not the per-test one — in tests it would embed dev data with the
@@ -37,10 +42,10 @@ def _ensure_test_database_exists() -> None:
     admin_engine = create_engine(settings.database_url.rsplit("/", 1)[0] + "/postgres")
     with admin_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         exists = conn.execute(
-            sqlalchemy.text("SELECT 1 FROM pg_database WHERE datname = 'meeting_compliance_test'")
+            sqlalchemy.text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": _TEST_DB_NAME}
         ).scalar()
         if not exists:
-            conn.execute(sqlalchemy.text("CREATE DATABASE meeting_compliance_test"))
+            conn.execute(sqlalchemy.text(f'CREATE DATABASE "{_TEST_DB_NAME}"'))
     admin_engine.dispose()
 
 

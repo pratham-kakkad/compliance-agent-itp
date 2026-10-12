@@ -73,9 +73,9 @@ export function ViewToggle({ view, onClick, disabled }: { view: DeckView; onClic
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="press group inline-flex items-center gap-2 rounded-full border border-line bg-panel px-4 py-2 text-[12.5px] font-semibold text-ink2 shadow-xs transition hover:border-[color:var(--copper)] hover:text-ink disabled:opacity-60"
+      className="press group glow-pill inline-flex items-center gap-2 rounded-full px-4 py-2 text-[12.5px] font-semibold text-ink2 transition hover:text-ink disabled:opacity-60"
     >
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="text-[color:var(--copper)] transition-transform duration-500 group-hover:rotate-180">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="text-accent transition-transform duration-500 group-hover:rotate-180">
         <ellipse cx="12" cy="12" rx="9" ry="4.2" />
         <ellipse cx="12" cy="12" rx="4.2" ry="9" />
         <circle cx="12" cy="12" r="1.4" fill="currentColor" />

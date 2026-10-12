@@ -11,7 +11,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 
-from app.compliance import audit, catalog, engine, escalation, policy
+from app import mailer
+from app.auth import local
+from app.compliance import audit, catalog, engine, escalation, notify, policy
 from app.compliance.api import aware, get_uuid
 from app.compliance.models import (
     AuditEvent,
@@ -47,6 +49,8 @@ class UserIn(BaseModel):
     manager_email: str | None = None
     department_id: str | None = None
     role_keys: list[str] = Field(default_factory=list)
+    # Create a one-time invite link (returned, and e-mailed when SMTP is configured).
+    send_invite: bool = True
 
 
 class UserPatch(BaseModel):
@@ -129,6 +133,9 @@ def _user_dict(u: OrgUser, depts: dict, roles: dict[str, list[dict]]) -> dict:
         "is_active": u.is_active,
         "is_demo": u.is_demo,
         "roles": roles.get(u.email, []),
+        "status": local.user_status(u),  # invited | active | disabled
+        "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
+        "has_password": u.password_hash is not None,
     }
 
 
@@ -221,7 +228,75 @@ def create_user(body: UserIn, ctx: Ctx = Depends(get_ctx)):
         _set_roles(ctx, u, body.role_keys)
     audit.record(db, ctx.email, "user.created", "user", email, after={"name": u.name, "title": u.title, "manager": u.manager_email, "roles": body.role_keys})
     db.commit()
-    return _user_dict(u, {d.id: d.name for d in db.scalars(select(Department))}, _roles_by_user(db))
+    invite = _issue_invite(ctx, u) if body.send_invite else None
+    out = _user_dict(u, {d.id: d.name for d in db.scalars(select(Department))}, _roles_by_user(db))
+    out["smtp_configured"] = mailer.is_configured(db)
+    if invite:
+        out.update(invite)
+    return out
+
+
+def _issue_invite(ctx: Ctx, u: OrgUser, kind: str = "invite") -> dict:
+    """Make a fresh one-time link for `u` and e-mail it when SMTP is set up.
+    The link is also returned so an admin can hand it over when it isn't.
+    Commits itself: the token is saved before the (possibly slow) mail goes out,
+    so no database lock is held while talking to the mail server.
+    kind "invite" (7 days) or "reset" (1 hour)."""
+    db = ctx.db
+    purpose = local.PURPOSE_INVITE if kind == "invite" else local.PURPOSE_RESET
+    token = local.issue_token(u, purpose)
+    db.commit()
+    if kind == "invite":
+        url = local.invite_url(token)
+        sent, error = local.send_invite_mail(db, u, token, invited_by=ctx.user.name)
+    else:
+        url = local.reset_url(token)
+        sent, error = local.send_reset_mail(db, u, token, by_admin=True)
+    audit.record(
+        db, ctx.email, "user.invited" if kind == "invite" else "user.reset_link_created", "user", u.email,
+        meta={"emailed": sent, "email_error": error, "smtp_configured": mailer.is_configured(db)},
+    )
+    db.commit()
+    return {
+        "link_kind": kind,
+        "invite_url": url,
+        "expires_at": u.invite_expires_at.isoformat() if u.invite_expires_at else None,
+        "email_sent": sent,
+        "email_error": error,
+        "smtp_configured": mailer.is_configured(db),
+    }
+
+
+def _guard_link_target(ctx: Ctx, u: OrgUser) -> None:
+    """A link lets whoever holds it set the person's password, so it must not be
+    a way to take over a more powerful account."""
+    if u.is_demo:
+        _bad("Demo accounts sign in without a password")
+    if not u.is_active:
+        _bad("Reactivate this person first")
+    if not ctx.is_super and u.email.lower() in _super_emails(ctx.db):
+        _bad("Only a Super Admin can send sign-in links for a Super Admin", 403)
+
+
+@router.post("/users/{email}/invite")
+def resend_invite(email: str, ctx: Ctx = Depends(get_ctx)):
+    """Resend (regenerate) the invite. Older links stop working."""
+    ctx.require("user", "edit")
+    u = _load_user(ctx, email, "edit")
+    _guard_link_target(ctx, u)
+    if u.password_hash is not None:
+        _bad("This person already has a password. Send a password reset link instead.")
+    return _issue_invite(ctx, u, "invite")
+
+
+@router.post("/users/{email}/reset-password")
+def admin_reset_password(email: str, ctx: Ctx = Depends(get_ctx)):
+    """Create a one-hour password reset link (mailed when SMTP is configured).
+    Someone who never set a password gets a fresh invite instead."""
+    ctx.require("user", "edit")
+    u = _load_user(ctx, email, "edit")
+    _guard_link_target(ctx, u)
+    return _issue_invite(ctx, u, "invite" if u.password_hash is None else "reset")
 
 
 def _load_user(ctx: Ctx, email: str, action: str = "view") -> OrgUser:
@@ -799,6 +874,17 @@ def export_audit(
 
 
 # --------------------------------------------------------------- scheduler
+
+
+@router.post("/send-pending")
+def send_pending(ctx: Ctx = Depends(get_ctx)):
+    """E-mail pending notifications now (this also runs after every tick)."""
+    ctx.require("settings", "configure")
+    result = notify.deliver_pending(ctx.db, limit=200)
+    if result["sent"] or result["failed"]:
+        audit.record(ctx.db, ctx.email, "notifications.email_sent", "scheduler", "send-pending", meta=result)
+        ctx.db.commit()
+    return result
 
 
 @router.post("/run-tick")

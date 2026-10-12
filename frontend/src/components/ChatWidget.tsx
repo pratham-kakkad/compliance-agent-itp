@@ -79,7 +79,7 @@ export function ChatFabAndPanel() {
         aria-expanded={open}
         whileTap={{ scale: 0.95 }}
         className={clsx(
-          "fixed bottom-6 right-6 z-40 w-14 h-14 rounded-2xl bg-accent-emphasis text-white shadow-lg hover:bg-accent-emphasis-hover items-center justify-center transition-colors",
+          "fixed bottom-6 right-6 z-40 w-14 h-14 rounded-2xl btn-primary text-white items-center justify-center transition-colors",
           open ? "hidden sm:flex" : "flex"
         )}
       >

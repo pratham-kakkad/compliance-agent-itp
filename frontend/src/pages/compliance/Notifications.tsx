@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   ClipboardList,
   Eye,
+  Mail,
   MessageSquareWarning,
   ShieldOff,
   Siren,
@@ -43,6 +44,7 @@ const KIND: Record<string, { icon: LucideIcon; tone: string; label: string }> = 
   waived: { icon: ShieldOff, tone: "text-ink2", label: "Waived" },
   deadline_changed: { icon: CalendarClock, tone: "text-accent", label: "Deadline changed" },
   review_overdue: { icon: BellRing, tone: "text-crit", label: "Review overdue" },
+  message: { icon: Mail, tone: "text-accent", label: "Message" },
 };
 const FALLBACK = { icon: Bell, tone: "text-ink2", label: "Notification" };
 

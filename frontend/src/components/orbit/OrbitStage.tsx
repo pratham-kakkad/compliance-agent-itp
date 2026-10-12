@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { LogoScene, SceneDriver } from "../three/LogoScene";
 import { LogoMark } from "../brand/Logo";
+import { useTheme } from "../../lib/useTheme";
 import type { DeckBlock } from "./types";
 
 /** Every panel is laid out at this width and then scaled to fit the ring, so their content never reflows. */
@@ -26,9 +27,9 @@ const CONTROLS_H = 86;
 /** Opacity of a panel `s` steps away from the front of the ring. */
 function ringOpacity(s: number) {
   if (s < 0.5) return 1;
-  if (s < 1) return lerp(1, 0.7, (s - 0.5) / 0.5);
-  if (s < 2) return lerp(0.7, 0.34, s - 1);
-  if (s < 3) return lerp(0.34, 0, s - 2);
+  if (s < 1) return lerp(1, 0.62, (s - 0.5) / 0.5);
+  if (s < 2) return lerp(0.62, 0.26, s - 1);
+  if (s < 3) return lerp(0.26, 0, s - 2);
   return 0;
 }
 
@@ -87,6 +88,7 @@ export function OrbitStage({
   const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
   const innerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const tagRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const { theme } = useTheme();
   const [driver] = useState(() => new SceneDriver());
   const [active, setActive] = useState(0);
   const onUnrolledRef = useRef(onUnrolled);
@@ -150,11 +152,11 @@ export function OrbitStage({
       const flatOp = clamp(1 - Math.max(0, Math.abs(x) - e.W * 0.4) / (e.W * 0.22), 0, 1);
       const fade = Math.min(1, Math.max(0, (e.N / 2 - s) / 0.35)); // a short list: hide the panel as it crosses the back
       const op = lerp(flatOp, ringOpacity(s), ringBlend) * introE * fade;
-      const grow = 1 + 0.045 * (1 - Math.min(1, s)) * ringBlend;
+      const grow = (1 + 0.04 * (1 - Math.min(1, s)) * ringBlend) * (1 - 0.1 * Math.min(1, s / 1.5) * ringBlend);
       el.style.transform = `translate3d(${x.toFixed(2)}px,0,${z.toFixed(2)}px) rotateY(${phiP.toFixed(4)}rad) scale(${(grow * (0.84 + 0.16 * introE)).toFixed(4)})`;
       el.style.opacity = op.toFixed(3);
-      el.style.setProperty("--dim", (clamp(s * 0.3, 0, 0.62) * ringBlend).toFixed(3));
-      el.style.setProperty("--glow", (clamp(1 - s * 1.4, 0, 1) * 0.4 * ringBlend).toFixed(3));
+      el.style.setProperty("--dim", (clamp(s * 0.38, 0, 0.7) * ringBlend).toFixed(3));
+      el.style.setProperty("--glow", (clamp(1 - s * 1.4, 0, 1) * 0.5 * ringBlend).toFixed(3));
       el.style.pointerEvents = op < 0.04 ? "none" : "auto";
 
       const tag = tagRefs.current[i];
@@ -180,10 +182,7 @@ export function OrbitStage({
     const chrome = smooth(clamp((k - 0.15) / 0.6, 0, 1));
     if (bgRef.current) bgRef.current.style.opacity = chrome.toFixed(3);
     if (hudRef.current) hudRef.current.style.opacity = (chrome * introE).toFixed(3);
-    if (rootRef.current) {
-      rootRef.current.style.borderColor = `rgba(255,255,255,${(0.1 * chrome).toFixed(3)})`;
-      rootRef.current.style.boxShadow = chrome > 0.02 ? `0 24px 70px rgba(5,13,38,${(0.35 * chrome).toFixed(3)})` : "none";
-    }
+    if (rootRef.current) rootRef.current.style.setProperty("--chrome", chrome.toFixed(3));
 
     driver.setProgress(theta);
     const idx = mod(Math.round(theta), e.N);
@@ -202,11 +201,11 @@ export function OrbitStage({
     e.N = N;
     e.W = Math.max(320, rect.width);
     e.H = Math.max(420, rect.height - CONTROLS_H);
-    e.cw = clamp(e.W * 0.46, 330, NATURAL_W);
-    const maxH = e.H * 0.64;
+    e.cw = clamp(e.W * 0.5, 340, NATURAL_W);
+    const maxH = e.H * 0.7;
     e.step = visualStep(e.N);
     e.R = Math.max((e.cw * 0.52) / Math.sin(e.step / 2), e.cw * 0.8);
-    e.floorY = maxH / 2 + 14;
+    e.floorY = maxH / 2 + 16;
     e.tagOffset = Math.max(60, e.cw * 0.14);
     for (let i = 0; i < e.N; i++) {
       const inner = innerRefs.current[i];
@@ -501,29 +500,30 @@ export function OrbitStage({
     };
   }, [kick, goBy, goTo]);
 
-  /* ---------- dial artwork (ticks + markers) ---------- */
+  /* ---------- dial artwork: a gradient rim, hairline rings, a ring of ticks, a dot per panel ---------- */
   const dialSvg = (
     <svg viewBox="-500 -500 1000 1000" className="h-full w-full" aria-hidden>
       <defs>
-        <linearGradient id="dial-ring" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#f1c8a6" />
-          <stop offset=".5" stopColor="#c98a5e" />
-          <stop offset="1" stopColor="#6c9cf0" />
-        </linearGradient>
         <radialGradient id="dial-fill" cx="50%" cy="50%" r="50%">
-          <stop offset="0" stopColor="#1346a8" stopOpacity=".05" />
-          <stop offset=".78" stopColor="#1346a8" stopOpacity=".22" />
-          <stop offset="1" stopColor="#c98a5e" stopOpacity=".18" />
+          <stop offset="0" className="dial-fill-a" stopOpacity="0" />
+          <stop offset=".78" className="dial-fill-a" stopOpacity=".035" />
+          <stop offset=".93" stopColor="#8b5cf6" stopOpacity=".12" />
+          <stop offset="1" stopColor="#06b6d4" stopOpacity=".24" />
         </radialGradient>
+        <linearGradient id="dial-grad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#6366f1" />
+          <stop offset=".5" stopColor="#8b5cf6" />
+          <stop offset="1" stopColor="#06b6d4" />
+        </linearGradient>
       </defs>
-      <circle r="496" fill="url(#dial-fill)" />
-      <circle r="494" fill="none" stroke="url(#dial-ring)" strokeWidth="3" />
-      <circle r="392" fill="none" stroke="rgba(255,255,255,.18)" strokeWidth="1.5" strokeDasharray="3 9" />
-      <circle r="300" fill="none" stroke="rgba(201,138,94,.2)" strokeWidth="1" />
-      {Array.from({ length: 180 }, (_, t) => {
-        const a = (t / 180) * TAU;
-        const major = t % 15 === 0;
-        const r0 = major ? 452 : 470;
+      <circle r="497" fill="url(#dial-fill)" />
+      <circle r="494" fill="none" stroke="url(#dial-grad)" strokeWidth="3" opacity=".7" />
+      <circle r="468" className="dial-ring-soft" strokeWidth="1.5" />
+      <circle r="330" className="dial-ring-soft" strokeWidth="1.5" strokeDasharray="2 12" />
+      {Array.from({ length: 144 }, (_, t) => {
+        const a = (t / 144) * TAU;
+        const major = t % 12 === 0;
+        const r0 = major ? 458 : 474;
         return (
           <line
             key={t}
@@ -531,22 +531,15 @@ export function OrbitStage({
             y1={Math.sin(a) * r0}
             x2={Math.cos(a) * 488}
             y2={Math.sin(a) * 488}
-            stroke={major ? "#e9b48f" : "rgba(255,255,255,.42)"}
-            strokeWidth={major ? 3 : 1.4}
+            className={major ? "dial-tick-major" : "dial-tick"}
+            strokeWidth={major ? 3 : 1.5}
           />
         );
       })}
       {Array.from({ length: Math.floor(TAU / visualStep(N)) }, (_, i) => {
         // panel i sits at SVG angle 90deg - i*step (the dial's bottom is the front of the ring)
         const a = Math.PI / 2 - i * visualStep(N);
-        const px = Math.cos(a);
-        const py = Math.sin(a);
-        return (
-          <g key={i}>
-            <line x1={px * 372} y1={py * 372} x2={px * 492} y2={py * 492} stroke="#f1c8a6" strokeWidth="5" strokeLinecap="round" />
-            <circle cx={px * 372} cy={py * 372} r="9" fill="#c98a5e" />
-          </g>
-        );
+        return <circle key={i} cx={Math.cos(a) * 494} cy={Math.sin(a) * 494} r="8" className="dial-dot" strokeWidth="3" />;
       })}
     </svg>
   );
@@ -557,11 +550,16 @@ export function OrbitStage({
         <filter id="ptr-glow" x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur stdDeviation="9" />
         </filter>
+        <linearGradient id="ptr-grad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#6366f1" />
+          <stop offset=".55" stopColor="#8b5cf6" />
+          <stop offset="1" stopColor="#06b6d4" />
+        </linearGradient>
       </defs>
-      {/* glowing arc at the front (bottom) of the dial, plus a pointer notch */}
-      <path d="M -150 475 A 498 498 0 0 0 150 475" fill="none" stroke="#f1c8a6" strokeWidth="14" strokeLinecap="round" filter="url(#ptr-glow)" opacity=".9" />
-      <path d="M -150 475 A 498 498 0 0 0 150 475" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round" />
-      <path d="M 0 400 L 26 456 L -26 456 Z" fill="#f1c8a6" />
+      {/* a short glowing arc at the front (bottom) of the dial marks the panel in focus */}
+      <path d="M -130 478 A 494 494 0 0 0 130 478" fill="none" stroke="url(#ptr-grad)" strokeWidth="18" strokeLinecap="round" filter="url(#ptr-glow)" opacity=".95" />
+      <path d="M -130 478 A 494 494 0 0 0 130 478" fill="none" stroke="url(#ptr-grad)" strokeWidth="5" strokeLinecap="round" />
+      <path d="M 0 448 L 8 468 L -8 468 Z" fill="#8b5cf6" />
     </svg>
   );
 
@@ -574,23 +572,22 @@ export function OrbitStage({
       role="region"
       aria-roledescription="carousel"
       aria-label="Dashboard orbit view"
-      className="orbit-stage relative isolate overflow-hidden rounded-2xl border outline-none select-none"
-      style={{ height, borderColor: "rgba(255,255,255,0.1)", touchAction: "pan-y", cursor: "grab" }}
+      className="orbit-stage relative isolate overflow-hidden rounded-3xl border outline-none select-none"
+      style={{ height, touchAction: "pan-y", cursor: "grab" }}
     >
-      {/* backdrop: gradient + WebGL scene */}
+      {/* palette: kicker and floor numbers in indigo / cyan (the logo is the only red on the stage) */}
+      <style>{`
+        .orbit-stage.orbit-stage { --st-kicker: #67e8f9; }
+        :root:not(.dark) .orbit-stage.orbit-stage { --st-kicker: #0e7490; }
+        .orbit-stage .floor-tag[data-on="true"] { color: #a5b4fc; text-shadow: 0 0 22px rgba(34, 211, 238, 0.85); }
+        :root:not(.dark) .orbit-stage .floor-tag[data-on="true"] { color: #4f46e5; text-shadow: 0 0 22px rgba(79, 70, 229, 0.55); }
+      `}</style>
+      {/* backdrop: colour washes (indigo, violet, cyan), plus a quiet particle field in dark mode */}
       <div ref={bgRef} className="pointer-events-none absolute inset-0">
-        <div
-          className="absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(70% 60% at 50% 34%, #123a86 0%, #0a1d4d 48%, #050d26 100%), #050d26",
-          }}
-        />
-        <LogoScene variant="backdrop" driver={driver} className="absolute inset-0 opacity-90" />
-        <div
-          className="absolute inset-0"
-          style={{ background: "radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(2,6,20,.65) 100%)" }}
-        />
+        <div className="orbit-bg absolute inset-0" />
+        <div className="orbit-wash absolute -inset-[10%]" />
+        {theme === "dark" && <LogoScene variant="backdrop" driver={driver} className="absolute inset-0 opacity-80" />}
+        <div className="orbit-vig absolute inset-0" />
       </div>
 
       {/* 3D world: floor dial + the ring of panels */}
@@ -600,8 +597,11 @@ export function OrbitStage({
           bottom: CONTROLS_H,
           perspective: PERSPECTIVE,
           perspectiveOrigin: "50% 38%",
-          WebkitMaskImage: "linear-gradient(to bottom, #000 80%, transparent 100%)",
-          maskImage: "linear-gradient(to bottom, #000 80%, transparent 100%)",
+          // fade out the bottom and both sides, so panels leaving the stage dissolve instead of being cut by its edge
+          WebkitMaskImage: "linear-gradient(to bottom, #000 82%, transparent 100%), linear-gradient(to right, transparent 0, #000 10%, #000 90%, transparent 100%)",
+          maskImage: "linear-gradient(to bottom, #000 82%, transparent 100%), linear-gradient(to right, transparent 0, #000 10%, #000 90%, transparent 100%)",
+          WebkitMaskComposite: "source-in",
+          maskComposite: "intersect",
         }}
       >
         <div className="absolute inset-0" style={{ transformStyle: "preserve-3d", transform: `rotateX(${-TILT_DEG}deg)` }}>
@@ -676,11 +676,11 @@ export function OrbitStage({
       </div>
 
       {/* 2D heads-up display */}
-      <div ref={hudRef} className="pointer-events-none absolute inset-0 text-white">
+      <div ref={hudRef} className="pointer-events-none absolute inset-0">
         <div className="absolute left-5 top-4 flex max-w-[60%] items-center gap-3 sm:left-6 sm:top-5">
-          <LogoMark size={30} tone="dark" shine={false} />
+          <LogoMark size={24} shine={false} />
           <div className="min-w-0">
-            <p className="text-[10.5px] font-bold uppercase tracking-[0.22em] text-[color:var(--copper-light)]">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.22em] text-[color:var(--st-kicker)]">
               {cur.kicker ?? "Orbit view"}
             </p>
             <h2 key={cur.id} className="hud-title truncate text-[17px] font-bold leading-tight tracking-tight sm:text-[21px]">
@@ -693,7 +693,7 @@ export function OrbitStage({
           type="button"
           onClick={onToggle}
           disabled={unrolling}
-          className="focus-ring pointer-events-auto press absolute right-5 top-4 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-[12.5px] font-bold text-white backdrop-blur transition hover:border-[var(--copper-light)] hover:bg-white/20 sm:right-6 sm:top-5"
+          className="focus-ring pointer-events-auto press glow-pill orbit-pill absolute right-5 top-4 inline-flex items-center gap-2 rounded-full px-4 py-2 text-[12.5px] font-semibold text-[color:rgb(var(--st-ink))] sm:right-6 sm:top-5"
         >
           <UnwrapIcon />
           Unwrap
@@ -705,18 +705,18 @@ export function OrbitStage({
               type="button"
               aria-label="Previous panel"
               onClick={() => goBy(-1)}
-              className="focus-ring press inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-white/10 backdrop-blur transition hover:bg-white/25"
+              className="orbit-btn focus-ring press inline-flex h-9 w-9 items-center justify-center rounded-full"
             >
               <Arrow dir="left" />
             </button>
-            <p className="tabular-nums min-w-[78px] text-center text-[13px] font-bold tracking-[0.18em] text-[color:var(--copper-light)]">
-              {String(active + 1).padStart(2, "0")} <span className="text-white/40">/ {String(N).padStart(2, "0")}</span>
+            <p className="tabular-nums min-w-[78px] text-center text-[13px] font-semibold tracking-[0.18em]">
+              {String(active + 1).padStart(2, "0")} <span className="orbit-title-sub">/ {String(N).padStart(2, "0")}</span>
             </p>
             <button
               type="button"
               aria-label="Next panel"
               onClick={() => goBy(1)}
-              className="focus-ring press inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-white/10 backdrop-blur transition hover:bg-white/25"
+              className="orbit-btn focus-ring press inline-flex h-9 w-9 items-center justify-center rounded-full"
             >
               <Arrow dir="right" />
             </button>
@@ -732,16 +732,16 @@ export function OrbitStage({
                 className="group flex h-4 items-center"
               >
                 <span
-                  className="block h-[5px] rounded-full transition-all duration-300"
+                  className="orbit-seg block h-[3px] rounded-full transition-all duration-300"
                   style={{
-                    width: i === active ? 26 : 8,
-                    background: i === active ? "var(--copper-grad)" : "rgba(255,255,255,.3)",
+                    width: i === active ? 28 : 10,
+                    background: i === active ? "linear-gradient(90deg,#6366f1,#06b6d4)" : undefined,
                   }}
                 />
               </button>
             ))}
           </div>
-          <p className="hidden text-[10.5px] font-semibold uppercase tracking-[0.2em] text-white/45 sm:block">
+          <p className="orbit-hint hidden text-[10.5px] font-medium uppercase tracking-[0.2em] sm:block">
             Scroll · drag · arrow keys
           </p>
         </div>

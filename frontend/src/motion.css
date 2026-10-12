@@ -1,43 +1,37 @@
 /*
- * INT Comply motion system: brand tokens (copper accent), the animated backdrop, entrance / stagger helpers,
+ * Encop motion system: brand tokens (logo red), the quiet animated backdrop, entrance / stagger helpers,
  * the intro splash and the orbit dashboard. Plain CSS on top of the Tailwind build; imported from main.tsx.
  * Everything animated here is switched off under prefers-reduced-motion at the bottom of the file.
  */
 
 :root {
-  /* Copper: the warm half of the INT Comply logo */
-  --copper: #c98a5e;
-  --copper-light: #f1c8a6;
-  --copper-deep: #8f5636;
-  --copper-soft: rgba(201, 138, 94, 0.14);
-  --copper-glow: rgba(201, 138, 94, 0.35);
-  --copper-grad: linear-gradient(135deg, #f1c8a6 0%, #c98a5e 52%, #8f5636 100%);
-  --deep-blue: #0b2a66;
-  --brand-grad: linear-gradient(135deg, #2a63c7 0%, #1346a8 45%, #0b2a66 100%);
+  /* The Encop logo: signal red on black, with the darker stripe red for depth */
+  --brand: #e00f14;
+  --brand-light: #ff5a5f;
+  --brand-deep: #930d0e;
+  --brand-soft: rgba(224, 15, 20, 0.1);
+  --brand-glow: rgba(224, 15, 20, 0.4);
+  --brand-grad: linear-gradient(135deg, #ff4b50 0%, #e00f14 50%, #930d0e 100%);
+  /* The dark "stage" used by the splash, the sign-in hero and the orbit dashboard (same in both themes) */
+  --stage: #08080b;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --aurora-a: rgba(19, 70, 168, 0.14);
-  --aurora-b: rgba(201, 138, 94, 0.17);
-}
-.dark {
-  --deep-blue: #8db3f5;
-  --aurora-a: rgba(68, 120, 230, 0.16);
-  --aurora-b: rgba(201, 138, 94, 0.12);
 }
 
-/* ---------- animated backdrop: slow-drifting aurora in the logo's navy + copper ---------- */
+/* ---------- ambient backdrop: soft colour washes the glass panels float over ---------- */
 body::before {
   content: "";
   position: fixed;
-  inset: -18%;
+  inset: -20%;
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(38% 34% at 14% 18%, var(--aurora-a), transparent 70%),
-    radial-gradient(34% 30% at 88% 12%, var(--aurora-b), transparent 70%),
-    radial-gradient(44% 38% at 72% 92%, var(--aurora-a), transparent 70%),
-    radial-gradient(30% 28% at 8% 88%, var(--aurora-b), transparent 70%);
-  animation: aurora 26s ease-in-out infinite alternate;
+    radial-gradient(52% 46% at 8% 10%, var(--amb-blue), transparent 70%),
+    radial-gradient(48% 44% at 94% 92%, var(--amb-red), transparent 70%),
+    radial-gradient(42% 38% at 80% 4%, var(--amb-violet), transparent 70%),
+    radial-gradient(38% 36% at 4% 96%, var(--amb-warm), transparent 70%),
+    radial-gradient(36% 32% at 54% 50%, var(--amb-mid), transparent 72%);
+  animation: aurora 34s ease-in-out infinite alternate;
   will-change: transform;
 }
 @keyframes aurora {
@@ -133,16 +127,16 @@ body::before {
   transition: opacity 280ms ease;
   background: radial-gradient(
     380px circle at var(--mx, 50%) var(--my, 50%),
-    rgba(19, 70, 168, 0.1),
-    rgba(201, 138, 94, 0.07) 40%,
+    rgba(99, 102, 241, 0.09),
+    rgba(6, 182, 212, 0.04) 40%,
     transparent 70%
   );
 }
 .dark .spot::after {
   background: radial-gradient(
     380px circle at var(--mx, 50%) var(--my, 50%),
-    rgba(108, 156, 240, 0.12),
-    rgba(201, 138, 94, 0.08) 40%,
+    rgba(129, 140, 248, 0.13),
+    rgba(34, 211, 238, 0.05) 40%,
     transparent 70%
   );
 }
@@ -212,22 +206,15 @@ body::before {
   animation: ping-ring 2s var(--ease-out) infinite;
 }
 
-.text-copper {
-  background: var(--copper-grad);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
 /* ---------- logo mark ---------- */
 @keyframes logo-pop {
   0% {
     opacity: 0;
-    transform: scale(0.35) rotate(-120deg);
+    transform: scale(0.4) rotate(-14deg) translateY(10px);
   }
   60% {
     opacity: 1;
-    transform: scale(1.08) rotate(8deg);
+    transform: scale(1.05) rotate(2deg);
   }
   100% {
     transform: scale(1) rotate(0deg);
@@ -235,19 +222,29 @@ body::before {
 }
 .logo-intro {
   transform-origin: 50% 50%;
-  animation: logo-pop 1100ms var(--ease-out) both;
+  animation: logo-pop 900ms var(--ease-out) both;
+}
+/* A soft band of light that crosses the mark now and then; masked to the mark's own silhouette. */
+.logo-shine {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  background: linear-gradient(105deg, transparent 44%, rgba(255, 255, 255, 0.55) 50%, transparent 56%) no-repeat;
+  background-size: 220% 100%;
+  animation: logo-sweep 7s ease-in-out infinite;
 }
 @keyframes logo-sweep {
   0%,
-  55% {
-    transform: translateX(0);
+  60% {
+    background-position: 130% 0;
   }
   100% {
-    transform: translateX(260%);
+    background-position: -30% 0;
   }
-}
-.logo-shine {
-  animation: logo-sweep 6s ease infinite;
 }
 
 /* ---------- intro splash ---------- */
@@ -259,7 +256,7 @@ html[data-splash="on"] #root * {
   animation-play-state: paused !important;
 }
 .splash {
-  background: #050d26;
+  background: #000;
   animation: splash-failsafe 600ms ease 7s forwards; /* if scripts fail, it still lifts by itself */
 }
 .splash.splash-exit {
@@ -268,24 +265,30 @@ html[data-splash="on"] #root * {
 }
 .splash-bg {
   background:
-    radial-gradient(60% 55% at 50% 38%, #123a86 0%, #0a1d4d 46%, #050d26 100%),
-    #050d26;
+    radial-gradient(55% 50% at 50% 42%, rgba(224, 15, 20, 0.14) 0%, rgba(120, 8, 12, 0.05) 45%, transparent 75%),
+    radial-gradient(45% 45% at 14% 14%, rgba(79, 70, 229, 0.34), transparent 70%),
+    radial-gradient(40% 40% at 88% 86%, rgba(6, 182, 212, 0.24), transparent 70%),
+    #000;
 }
-.splash-letter {
+.splash-word {
   opacity: 0;
-  transform: translateY(34px) rotateX(-75deg);
-  transform-origin: 50% 100%;
-  animation: letter-in 760ms var(--ease-out) forwards;
+  animation: word-in 900ms var(--ease-out) 1000ms forwards;
 }
-@keyframes letter-in {
+@keyframes word-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+    clip-path: inset(0 100% 0 0);
+  }
   to {
     opacity: 1;
     transform: none;
+    clip-path: inset(0 0 0 0);
   }
 }
 .splash-tag {
   opacity: 0;
-  animation: fadeInUp 900ms var(--ease-out) 1900ms forwards;
+  animation: fadeInUp 900ms var(--ease-out) 1700ms forwards;
 }
 .splash-bar {
   opacity: 0;
@@ -315,27 +318,134 @@ html[data-splash="on"] #root * {
 }
 
 /* ---------- orbit dashboard ---------- */
+.orbit-stage {
+  /* the stage follows the theme: --st-ink is the foreground (white on dark, ink on light), as r, g, b */
+  --st-ink: 255, 255, 255;
+  --st-shadow: 0, 0, 0;
+  --st-dim: 6, 7, 12;
+  --st-kicker: #ff7a7e;
+  --st-pill: #14151f;
+  --chrome: 1;
+  color: rgb(var(--st-ink));
+  background: #07080d;
+  border-color: rgba(var(--st-ink), calc(0.1 * var(--chrome)));
+  box-shadow: 0 28px 70px -12px rgba(var(--st-shadow), calc(0.6 * var(--chrome)));
+}
+:root:not(.dark) .orbit-stage {
+  --st-ink: 24, 26, 48;
+  --st-shadow: 40, 52, 120;
+  --st-dim: 238, 240, 250;
+  --st-kicker: #c80d12;
+  --st-pill: #ffffff;
+  --dim-k: 0.62;
+  background: #eef0f9;
+}
 .orbit-stage[data-dragging="true"] {
   cursor: grabbing !important;
 }
 .orbit-stage:focus-visible {
-  outline: 2px solid var(--copper);
+  outline: 2px solid var(--focus);
   outline-offset: 3px;
 }
+.orbit-bg {
+  background:
+    radial-gradient(56% 60% at 10% 14%, rgba(79, 70, 229, 0.4), transparent 70%),
+    radial-gradient(52% 56% at 94% 90%, rgba(6, 182, 212, 0.3), transparent 72%),
+    radial-gradient(40% 46% at 82% 6%, rgba(168, 85, 247, 0.3), transparent 70%),
+    radial-gradient(34% 40% at 40% 100%, rgba(236, 72, 153, 0.16), transparent 70%),
+    #07080f;
+}
+:root:not(.dark) .orbit-bg {
+  background:
+    radial-gradient(56% 60% at 10% 14%, rgba(99, 102, 241, 0.4), transparent 70%),
+    radial-gradient(52% 56% at 94% 90%, rgba(6, 182, 212, 0.34), transparent 72%),
+    radial-gradient(40% 46% at 82% 6%, rgba(168, 85, 247, 0.34), transparent 70%),
+    radial-gradient(34% 40% at 40% 100%, rgba(236, 72, 153, 0.18), transparent 70%),
+    linear-gradient(160deg, #f8f6fd, #e9edf9);
+}
+.orbit-wash {
+  background:
+    radial-gradient(30% 34% at 30% 70%, rgba(6, 182, 212, 0.16), transparent 70%),
+    radial-gradient(28% 30% at 70% 30%, rgba(168, 85, 247, 0.14), transparent 70%);
+  animation: aurora 22s ease-in-out infinite alternate;
+}
+.orbit-vig {
+  background: radial-gradient(120% 90% at 50% 50%, transparent 58%, rgba(var(--st-shadow), 0.5) 100%);
+}
+:root:not(.dark) .orbit-vig {
+  background: radial-gradient(120% 90% at 50% 50%, transparent 62%, rgba(var(--st-shadow), 0.14) 100%);
+}
 .orbit-card {
+  --glass: var(--glass-orbit);
   box-shadow:
-    0 28px 60px rgba(2, 6, 20, 0.5),
-    0 0 0 1px rgba(255, 255, 255, 0.1),
-    0 0 70px rgba(201, 138, 94, var(--glow, 0));
+    0 34px 60px -14px rgba(var(--st-shadow), 0.6),
+    0 0 0 1px rgba(var(--st-ink), 0.09),
+    -34px 24px 90px -26px rgba(99, 102, 241, calc(var(--glow, 0) * 0.65)),
+    34px 24px 90px -26px rgba(6, 182, 212, calc(var(--glow, 0) * 0.6));
+}
+/* Inside the ring the panels sit on one flat plane: no per-card blur (it cannot sample through a 3D plane). */
+.orbit-card .glass {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .orbit-card > .orbit-dim {
-  background: #050d26;
-  opacity: var(--dim, 0);
+  background: rgb(var(--st-dim));
+  opacity: calc(var(--dim, 0) * var(--dim-k, 1));
 }
 .orbit-scroll {
   scrollbar-width: thin;
-  scrollbar-color: rgba(19, 70, 168, 0.35) transparent;
+  scrollbar-color: rgba(120, 124, 150, 0.4) transparent;
   overscroll-behavior: contain;
+}
+.orbit-btn {
+  color: rgb(var(--st-ink));
+  background: rgba(var(--st-ink), 0.07);
+  border: 1px solid rgba(var(--st-ink), 0.16);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 200ms ease;
+}
+.orbit-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(var(--st-ink), 0.12);
+  box-shadow: 0 0 18px -4px rgba(99, 102, 241, 0.55);
+}
+.orbit-pill {
+  --pill-bg: var(--st-pill);
+}
+.orbit-seg {
+  background: rgba(var(--st-ink), 0.22);
+}
+.orbit-hint {
+  color: rgba(var(--st-ink), 0.4);
+}
+.orbit-title-sub {
+  color: rgba(var(--st-ink), 0.45);
+}
+/* floor dial artwork */
+.dial-ring {
+  fill: none;
+  stroke: rgba(var(--st-ink), 0.3);
+}
+.dial-ring-soft {
+  fill: none;
+  stroke: rgba(var(--st-ink), 0.1);
+}
+.dial-tick {
+  stroke: rgba(var(--st-ink), 0.24);
+}
+.dial-tick-major {
+  stroke: rgba(var(--st-ink), 0.6);
+}
+.dial-dot {
+  fill: var(--st-pill);
+  stroke: rgba(var(--st-ink), 0.75);
+}
+.dial-fill-a {
+  stop-color: rgb(var(--st-ink));
 }
 .hud-title {
   animation: hud-in 420ms var(--ease-out) both;
@@ -361,25 +471,18 @@ html[data-splash="on"] #root * {
 
 /* Numbers painted on the orbit floor in front of each panel */
 .floor-tag {
-  padding: 6px 16px;
-  border-radius: 999px;
-  font-size: 30px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  color: rgba(246, 220, 195, 0.75);
-  border: 2px solid rgba(241, 200, 166, 0.35);
-  background: rgba(201, 138, 94, 0.1);
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.22em;
+  color: rgba(var(--st-ink), 0.3);
   transition:
     color 300ms ease,
-    background 300ms ease,
-    border-color 300ms ease,
-    box-shadow 300ms ease;
+    text-shadow 300ms ease;
 }
 .floor-tag[data-on="true"] {
-  color: #fff;
-  border-color: rgba(241, 200, 166, 0.95);
-  background: rgba(201, 138, 94, 0.45);
-  box-shadow: 0 0 40px rgba(241, 200, 166, 0.55);
+  color: rgb(var(--st-ink));
+  text-shadow: 0 0 22px rgba(99, 102, 241, 0.9);
 }
 
 /* Grid -> orbit: the cards drop away one after another before the ring forms. */

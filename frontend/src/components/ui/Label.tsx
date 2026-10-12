@@ -6,28 +6,28 @@ export type { Tone };
 
 const SUBTLE: Record<Tone, string> = {
   neutral: "bg-neutral-bg text-ink2 border-line",
-  accent: "bg-accent-soft text-accent-strong border-transparent",
+  accent: "bg-info-bg text-info border-transparent",
   good: "bg-good-bg text-good border-transparent",
   warn: "bg-warn-bg text-warn border-transparent",
   crit: "bg-crit-bg text-crit border-transparent",
 };
 const OUTLINE: Record<Tone, string> = {
   neutral: "text-ink2 border-line",
-  accent: "text-accent border-accent",
+  accent: "text-info border-info",
   good: "text-good border-good",
   warn: "text-warn border-warn",
   crit: "text-crit border-crit",
 };
 const SOLID: Record<Tone, string> = {
   neutral: "bg-neutral text-white border-transparent",
-  accent: "bg-accent-emphasis text-white border-transparent",
+  accent: "bg-info text-white border-transparent",
   good: "bg-good text-white border-transparent",
   warn: "bg-warn text-white border-transparent",
   crit: "bg-crit text-white border-transparent",
 };
 const DOT: Record<Tone, string> = {
   neutral: "bg-neutral",
-  accent: "bg-accent",
+  accent: "bg-info",
   good: "bg-good",
   warn: "bg-warn",
   crit: "bg-crit",

@@ -7,3 +7,4 @@ export * from "./Feedback";
 export * from "./Inputs";
 export * from "./Menu";
 export * from "./DataTable";
+export * from "./Filters";

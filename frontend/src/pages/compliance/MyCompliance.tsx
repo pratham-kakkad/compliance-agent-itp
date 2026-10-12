@@ -1,26 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import clsx from "clsx";
-import { CheckCircle2, ClipboardCheck, Clock, Hourglass, Info, TriangleAlert } from "lucide-react";
+import { AlarmClock, CalendarClock, CheckCircle2, ClipboardCheck, Clock, Flame, Hourglass, Info, TriangleAlert } from "lucide-react";
 import { api } from "../../lib/api";
 import { useApi } from "../../lib/useApi";
-import { useDebouncedValue } from "../../lib/useDebouncedValue";
-import type { Obligation, Page } from "../../lib/compliance";
+import { downloadCsv, type CsvColumn } from "../../lib/csv";
+import { fmtDate } from "../../lib/format";
+import { useListFilters, type FilterField, type SortDef } from "../../lib/useListFilters";
+import { PRIORITY_LABEL, STATUS_LABEL, type Obligation, type ObligationStatus, type Page, type Priority } from "../../lib/compliance";
 import {
   Button,
   Card,
   EmptyState,
   ErrorState,
+  FilterBar,
+  FilterEmpty,
   PageHeader,
-  SearchInput,
   SegmentedControl,
   Skeleton,
   StatCard,
   StatGridSkeleton,
+  type QuickFilter,
 } from "../../components/ui";
 import { DueLabel, ObligationStatusLabel, ParticipationLabel, PriorityLabel, toastError } from "../../components/compliance/common";
 
 const PAGE_SIZE = 100;
+
+const PRIORITIES = Object.keys(PRIORITY_LABEL) as Priority[];
+const STATUSES = Object.keys(STATUS_LABEL) as ObligationStatus[];
 
 type View = "todo" | "review" | "done" | "info" | "all";
 
@@ -121,6 +128,23 @@ function ListSkeleton() {
   );
 }
 
+// The server filters and sorts (GET /compliance/obligations?mine=true). "urgency" is the page's own order:
+// open items by deadline with overdue first, so it sends no sort parameter.
+const SORTS: SortDef<Obligation>[] = [
+  { key: "urgency", label: "Most urgent first", value: () => null, serverKey: null },
+  { key: "due", label: "Deadline", value: (o) => o.due_at },
+  { key: "priority", label: "Priority", value: (o) => PRIORITIES.indexOf(o.compliance.priority), firstDir: "desc" },
+  { key: "name", label: "Name", value: (o) => o.compliance.name.toLowerCase() },
+  { key: "status", label: "Status", value: (o) => STATUSES.indexOf(o.status) },
+];
+
+const QUICK: QuickFilter[] = [
+  { id: "overdue", label: "Overdue", icon: AlarmClock, field: "overdue" },
+  { id: "week", label: "Due this week", icon: CalendarClock, field: "due", value: "thisweek" },
+  { id: "critical", label: "Critical", icon: Flame, field: "priority", value: "critical" },
+  { id: "changes", label: "Changes needed", icon: TriangleAlert, field: "status", value: "rejected" },
+];
+
 const EMPTY: Record<View, { title: string; description: string }> = {
   todo: { title: "You're all caught up", description: "Nothing needs your action right now. New compliance tasks will show up here." },
   review: { title: "Nothing is in review", description: "Items you've submitted that are waiting for a reviewer appear here." },
@@ -130,17 +154,49 @@ const EMPTY: Record<View, { title: string; description: string }> = {
 };
 
 export function MyCompliance() {
-  const [view, setView] = useState<View>("todo");
-  const [search, setSearch] = useState("");
-  const q = useDebouncedValue(search.trim(), 250);
+  const [params, setParams] = useSearchParams();
+  const rawView = params.get("view");
+  const view: View = rawView === "review" || rawView === "done" || rawView === "info" || rawView === "all" ? rawView : "todo";
+  const setView = (v: View) =>
+    setParams(
+      (p) => {
+        const next = new URLSearchParams(p);
+        if (v === "todo") next.delete("view");
+        else next.set("view", v);
+        return next;
+      },
+      { replace: true }
+    );
   const [extra, setExtra] = useState<Obligation[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const params = new URLSearchParams({ mine: "true", limit: String(PAGE_SIZE), offset: "0" });
-  if (q) params.set("q", q);
-  const { data, error, loading, initialLoading, reload } = useApi<Page<Obligation>>(`/compliance/obligations?${params.toString()}`);
+  const cats = useApi<string[]>("/compliance/categories");
+  const fields = useMemo<FilterField<Obligation>[]>(
+    () => [
+      { type: "multi", key: "priority", label: "Priority", options: PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] })) },
+      { type: "multi", key: "status", label: "Status", options: STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] })) },
+      { type: "multi", key: "category", label: "Category", options: (cats.data ?? []).filter(Boolean).map((c) => ({ value: c, label: c })) },
+      { type: "date", key: "due", label: "Due", presets: ["overdue", "today", "thisweek", "month", "next7", "next30", "custom"] },
+      { type: "toggle", key: "overdue", label: "Overdue only", hint: "Still open and past the deadline." },
+    ],
+    [cats.data]
+  );
+  const lf = useListFilters<Obligation>({
+    id: "my-compliance",
+    fields,
+    sorts: SORTS,
+    defaultSort: { key: "urgency", dir: "asc" },
+  });
+  const baseParams = new URLSearchParams(lf.serverParams());
+  baseParams.set("mine", "true");
+  baseParams.set("limit", String(PAGE_SIZE));
+  const baseKey = baseParams.toString();
 
-  // A fresh first page (new search, refetch) replaces anything "Load more" appended.
+  const { data, error, loading, initialLoading, reload } = useApi<Page<Obligation>>(`/compliance/obligations?${baseKey}&offset=0`);
+  // Everything assigned to you, before any filter, for "12 of 40".
+  const everything = useApi<Page<Obligation>>("/compliance/obligations?mine=true&limit=1");
+
+  // A fresh first page (new search, filter or sort, refetch) replaces anything "Load more" appended.
   useEffect(() => setExtra([]), [data]);
 
   const items = useMemo(() => (data ? [...data.items, ...extra] : []), [data, extra]);
@@ -150,9 +206,7 @@ export function MyCompliance() {
   async function loadMore() {
     setLoadingMore(true);
     try {
-      const p = new URLSearchParams({ mine: "true", limit: String(PAGE_SIZE), offset: String(items.length) });
-      if (q) p.set("q", q);
-      const next = await api.get<Page<Obligation>>(`/compliance/obligations?${p.toString()}`);
+      const next = await api.get<Page<Obligation>>(`/compliance/obligations?${baseKey}&offset=${items.length}`);
       setExtra((e) => [...e, ...next.items]);
     } catch (e) {
       toastError("Couldn't load more", e);
@@ -172,7 +226,8 @@ export function MyCompliance() {
     [items]
   );
 
-  const visible = useMemo(() => {
+  const urgencySort = lf.sort.key === "urgency";
+  const arrange = (list: Obligation[]) => {
     const pick: Record<View, (o: Obligation) => boolean> = {
       todo: isTodo,
       review: isReview,
@@ -180,16 +235,39 @@ export function MyCompliance() {
       info: isInfo,
       all: () => true,
     };
-    const rows = items.filter(pick[view]);
-    // Array.prototype.sort is stable, so the server's deadline order survives inside each group.
-    return view === "todo" || view === "all" ? [...rows].sort((a, b) => urgency(a) - urgency(b)) : rows;
-  }, [items, view]);
+    const rows = list.filter(pick[view]);
+    // Array.prototype.sort is stable, so the server's order survives inside each group. A sort the person
+    // chose is the server's order, so only the default "most urgent" regroups.
+    return urgencySort && (view === "todo" || view === "all") ? [...rows].sort((a, b) => urgency(a) - urgency(b)) : rows;
+  };
+  const visible = useMemo(() => arrange(items), [items, view, urgencySort]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const informational = view === "all" ? visible.filter(isInfo) : [];
   const main = view === "all" ? visible.filter((o) => !isInfo(o)) : visible;
 
+  const csvColumns: CsvColumn<Obligation>[] = [
+    { header: "Compliance", value: (o) => o.compliance.name },
+    { header: "Category", value: (o) => o.compliance.category },
+    { header: "Priority", value: (o) => PRIORITY_LABEL[o.compliance.priority] },
+    { header: "Status", value: (o) => (o.non_compliant ? "Non-compliant" : o.overdue ? "Overdue" : STATUS_LABEL[o.status]) },
+    { header: "Due", value: (o) => (o.due_at ? fmtDate(o.due_at) : "") },
+    { header: "What to do", value: (o) => o.compliance.action_text },
+  ];
+  // Every matching item (not just the pages loaded so far), laid out the way the list shows them.
+  async function exportAll(): Promise<number> {
+    const all: Obligation[] = [];
+    for (let offset = 0; offset < 5000; offset += 500) {
+      const res = await api.get<Page<Obligation>>(`/compliance/obligations?${baseKey}&limit=500&offset=${offset}`);
+      all.push(...res.items);
+      if (all.length >= res.total || res.items.length === 0) break;
+    }
+    const rows = arrange(all);
+    downloadCsv("my-compliance", csvColumns, rows);
+    return rows.length;
+  }
+
   const tilesLoading = initialLoading;
-  const emptyCopy = q ? { title: "No matches", description: `Nothing matches "${q}". Try a different search.` } : EMPTY[view];
+  const emptyCopy = EMPTY[view];
 
   return (
     <div>
@@ -209,23 +287,31 @@ export function MyCompliance() {
         <p className="text-xs text-ink3 mt-2">Counts cover the {items.length} of {total} items loaded so far.</p>
       )}
 
-      <div className="mt-6 flex flex-wrap items-center gap-3 justify-between">
-        <div className="max-w-full overflow-x-auto">
-          <SegmentedControl<View>
-            aria-label="Filter your compliance items"
-            value={view}
-            onChange={setView}
-            options={[
-              { value: "todo", label: `To do${data ? ` (${counts.todo})` : ""}` },
-              { value: "review", label: `In review${data ? ` (${counts.review})` : ""}` },
-              { value: "done", label: "Done" },
-              { value: "info", label: "For information" },
-              { value: "all", label: "All" },
-            ]}
-          />
-        </div>
-        <SearchInput value={search} onChange={setSearch} placeholder="Search by name…" aria-label="Search your compliance items" className="w-full sm:w-64" />
+      <div className="mt-6 mb-3 max-w-full overflow-x-auto">
+        <SegmentedControl<View>
+          aria-label="Filter your compliance items"
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "todo", label: `To do${data ? ` (${counts.todo})` : ""}` },
+            { value: "review", label: `In review${data ? ` (${counts.review})` : ""}` },
+            { value: "done", label: "Done" },
+            { value: "info", label: "For information" },
+            { value: "all", label: "All" },
+          ]}
+        />
       </div>
+
+      <FilterBar
+        lf={lf}
+        noun={["item", "items"]}
+        total={everything.data?.total}
+        shown={data ? visible.length : undefined}
+        quick={QUICK}
+        searchPlaceholder="Search by name…"
+        onExport={exportAll}
+        className="!mb-0"
+      />
 
       <Card padding="none" className="mt-4 overflow-hidden">
         {error && !data ? (
@@ -233,7 +319,7 @@ export function MyCompliance() {
         ) : initialLoading ? (
           <ListSkeleton />
         ) : visible.length === 0 ? (
-          <EmptyState icon={view === "info" ? Info : CheckCircle2} title={emptyCopy.title} description={emptyCopy.description} />
+          <FilterEmpty lf={lf} icon={view === "info" ? Info : CheckCircle2} emptyTitle={emptyCopy.title} emptyDescription={emptyCopy.description} />
         ) : (
           <div className={clsx("transition-opacity duration-150", loading && "opacity-70")}>
             {main.length > 0 && (

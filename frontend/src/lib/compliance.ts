@@ -273,6 +273,10 @@ export interface AdminUser {
   is_active: boolean;
   is_demo: boolean;
   roles: { key: string; name: string }[];
+  /** invited: created but hasn't set a password or signed in yet. */
+  status?: "invited" | "active" | "disabled";
+  last_login_at?: string | null;
+  has_password?: boolean;
 }
 export interface AdminUserDetail extends AdminUser {
   overrides: { resource: string; action: string; effect: "allow" | "deny"; scope: string | null }[];

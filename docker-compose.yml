@@ -36,6 +36,8 @@ services:
       DATABASE_URL: postgresql+psycopg2://meetingcompliance:meetingcompliance@db:5432/meeting_compliance
       # Set to "false" to skip seeding demo data on every container start.
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      # Just the biometric attendance demo punches (only matters while SEED_DEMO_DATA is true).
+      SEED_DEMO_ATTENDANCE: ${SEED_DEMO_ATTENDANCE:-true}
     # Uploaded compliance evidence (screenshots, certificates, ...) lives here,
     # so it survives the container being rebuilt.
     volumes:

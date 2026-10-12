@@ -1,10 +1,12 @@
 import { Link, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bell, LogOut, Menu as MenuIcon, MoonStar, Search, Sun } from "lucide-react";
+import { Bell, KeyRound, LogOut, Menu as MenuIcon, MoonStar, Search, Sun } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { useTheme, type ThemeMode } from "../../lib/useTheme";
 import { useCompliance } from "../../lib/ComplianceContext";
 import { Avatar, IconButton, Kbd, Label, Menu, Tooltip } from "../ui";
+import { useOverlay } from "../Modal";
+import { ChangePasswordDialog } from "../auth/ChangePasswordDialog";
 import { showCommandPalette, isMac } from "./CommandPalette";
 import { Logo } from "./Logo";
 import { locate } from "./nav";
@@ -62,6 +64,7 @@ function NotificationBell() {
 function UserMenu() {
   const { me, logout } = useAuth();
   const { mode, setMode } = useTheme();
+  const { openModal } = useOverlay();
   if (!me) return null;
   return (
     <Menu.Root>
@@ -87,6 +90,12 @@ function UserMenu() {
           <Menu.RadioItem value="system">System</Menu.RadioItem>
         </Menu.RadioGroup>
         <Menu.Separator />
+        {!me.is_demo && (
+          <Menu.Item onSelect={() => openModal(<ChangePasswordDialog />)}>
+            <KeyRound size={16} className="text-ink2" />
+            Change password
+          </Menu.Item>
+        )}
         <Menu.Item onSelect={() => logout()}>
           <LogOut size={16} className="text-ink2" />
           Sign out
@@ -102,7 +111,7 @@ export function Header({ onMenu }: { onMenu: () => void }) {
   const { section, page } = locate(pathname);
 
   return (
-    <header className="sticky top-0 z-30 h-14 flex items-center gap-2 px-3 sm:px-4 bg-sidebar border-b border-line">
+    <header className="sticky top-0 z-30 h-14 flex items-center gap-2 px-3 sm:px-4 glass-bar border-b border-[var(--glass-border)]">
       <IconButton icon={MenuIcon} label="Toggle navigation" onClick={onMenu} tooltip={false} />
       <div className="hidden sm:block">
         <Logo />
@@ -124,7 +133,7 @@ export function Header({ onMenu }: { onMenu: () => void }) {
         <button
           type="button"
           onClick={showCommandPalette}
-          className="hidden md:flex items-center gap-2 h-8 w-64 lg:w-72 px-2.5 rounded-md border border-line bg-canvas text-sm text-ink3 hover:border-line-strong transition-colors"
+          className="glass hidden md:flex items-center gap-2 h-9 w-64 lg:w-80 px-3 rounded-full text-sm text-ink3 hover:text-ink2 transition-colors"
         >
           <Search size={16} aria-hidden />
           <span className="flex-1 text-left">Search or jump to…</span>
@@ -134,7 +143,7 @@ export function Header({ onMenu }: { onMenu: () => void }) {
         {me && (
           <span className="hidden sm:inline-flex mx-1">
             <Label tone={me.is_demo ? "warn" : "good"} dot size="md">
-              {me.is_demo ? "Demo data" : "Live · Microsoft 365"}
+              {me.is_demo ? "Demo data" : "Live data"}
             </Label>
           </span>
         )}

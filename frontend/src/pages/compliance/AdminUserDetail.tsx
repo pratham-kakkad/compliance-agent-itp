@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { ArrowLeft, Eye, Plus, Trash2, UserCheck, UserX } from "lucide-react";
+import { ArrowLeft, Eye, KeyRound, Plus, Send, Trash2, UserCheck, UserX } from "lucide-react";
 import { useApi } from "../../lib/useApi";
 import { api } from "../../lib/api";
 import { useCompliance } from "../../lib/ComplianceContext";
@@ -10,6 +10,9 @@ import type { AdminRole, AdminUserDetail as UserDetail, Obligation, ObligationSt
 import { Avatar, Banner, Button, Card, CardHeader, DataTable, EmptyState, ErrorState, IconButton, Label, PageHeader, Select, Skeleton, TextInput } from "../../components/ui";
 import type { Column } from "../../components/ui";
 import { DueLabel, Field, ObligationStatusLabel, PriorityLabel, toastError } from "../../components/compliance/common";
+import { StatusLabel, lastSignIn, useLinkActions } from "../../components/compliance/admin/InviteLink";
+import { EmailButton } from "../../components/compliance/email/EmailButton";
+import { CommunicationHistory } from "../../components/compliance/email/CommunicationHistory";
 import { Chip, NoAccess, PersonSelect, RoleChecklist, ACTION_ORDER, actionLabel, humanize, scopeShort, SCOPE_ORDER, useConfirm, useLookup } from "../../components/compliance/admin/parts";
 
 const userPath = (email: string) => `/compliance/admin/users/${encodeURIComponent(email)}`;
@@ -543,8 +546,10 @@ export function AdminUserDetail() {
   const email = param ?? "";
   const { can, ready, me, reload: reloadMe } = useCompliance();
   const confirm = useConfirm();
+  const links = useLinkActions();
   const allowed = can("user", "view");
   const { data, error, initialLoading, reload } = useApi<UserDetail>(allowed && email ? userPath(email) : null);
+  const [mailTick, setMailTick] = useState(0);
 
   const isSelf = (me?.user?.email ?? "").toLowerCase() === email.toLowerCase();
   const refresh = () => {
@@ -641,18 +646,49 @@ export function AdminUserDetail() {
               {user.title ? ` · ${user.title}` : ""}
               {user.department ? ` · ${user.department}` : ""}
             </span>
-            {user.is_active ? <Label tone="good" size="sm" dot>Active</Label> : <Label tone="neutral" size="sm" dot>Deactivated</Label>}
+            <StatusLabel user={user} />
             {user.is_demo && <Label tone="accent" variant="outline" size="sm">Demo</Label>}
+            <span className="text-ink3">Last sign-in: {lastSignIn(user.last_login_at)}</span>
           </span>
         }
         actions={
-          canDeactivate && (
-            <Button variant={user.is_active ? "danger" : "secondary"} leadingIcon={user.is_active ? UserX : UserCheck} onClick={toggleActive}>
-              {user.is_active ? "Deactivate" : "Reactivate"}
-            </Button>
-          )
+          <div className="flex flex-wrap items-center gap-2">
+            {!isSelf && (
+              <EmailButton
+                label="Email"
+                onDone={() => setMailTick((t) => t + 1)}
+                target={() => ({
+                  recipients: { emails: [user.email] },
+                  heading: `Email ${user.name}`,
+                  subtitle: "The message can list their open compliance items. Replies go to you.",
+                  defaultKind: "reminder",
+                })}
+              />
+            )}
+            {links.canInvite(user) && (
+              <Button leadingIcon={Send} onClick={() => void links.resendInvite(user)}>
+                Resend invite
+              </Button>
+            )}
+            {links.canReset(user) && !links.canInvite(user) && (
+              <Button leadingIcon={KeyRound} onClick={() => void links.sendReset(user)}>
+                Send reset link
+              </Button>
+            )}
+            {canDeactivate && (
+              <Button variant={user.is_active ? "danger" : "secondary"} leadingIcon={user.is_active ? UserX : UserCheck} onClick={toggleActive}>
+                {user.is_active ? "Deactivate" : "Reactivate"}
+              </Button>
+            )}
+          </div>
         }
       />
+
+      {user.status === "invited" && (
+        <Banner tone="info" title="Invited, hasn't signed in yet" className="mb-4">
+          They haven't set a password. Use Resend invite to make a new link (older links stop working).
+        </Banner>
+      )}
 
       {!user.is_active && (
         <Banner tone="warn" title="This user is deactivated" className="mb-4">
@@ -668,6 +704,13 @@ export function AdminUserDetail() {
         <OverridesCard key={`ov|${JSON.stringify(user.overrides)}`} user={user} onSaved={refresh} />
         {can("role", "view") && <AccessCard key={`access|${user.roles.map((r) => r.key).join(",")}|${JSON.stringify(user.overrides)}|${user.is_active}`} email={user.email} />}
         <HistoryCard user={user} />
+        {!isSelf && (
+          <CommunicationHistory
+            query={`person=${encodeURIComponent(user.email)}`}
+            description={`E-mails sent to ${user.name} about compliance, newest first.`}
+            refresh={mailTick}
+          />
+        )}
       </div>
     </div>
   );

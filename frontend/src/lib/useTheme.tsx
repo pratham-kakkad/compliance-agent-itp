@@ -19,9 +19,9 @@ function systemTheme(): Theme {
 function savedMode(): ThemeMode {
   try {
     const v = localStorage.getItem("mc-theme");
-    return v === "light" || v === "dark" || v === "system" ? v : "system";
+    return v === "light" || v === "dark" || v === "system" ? v : "light"; // light unless the person chose otherwise
   } catch {
-    return "system";
+    return "light";
   }
 }
 
@@ -40,7 +40,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#010409" : "#ffffff");
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#070812" : "#ffffff");
   }, [theme]);
 
   const setMode = useCallback((m: ThemeMode) => {

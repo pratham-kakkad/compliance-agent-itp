@@ -1,38 +1,30 @@
 import { Link } from "react-router-dom";
-import { useTheme } from "../../lib/useTheme";
-import { BrandName, LogoMark as BrandMark } from "../brand/Logo";
+import { LogoMark as BrandMark, Wordmark } from "../brand/Logo";
 
-/** The mark on the page, tuned for the current theme (the navy half is brightened on dark surfaces). */
+/** The mark on the page (the artwork works on both themes). */
 export function ThemedMark({ size = 26, shine = true, className }: { size?: number; shine?: boolean; className?: string }) {
-  const { theme } = useTheme();
-  return <BrandMark size={size} tone={theme === "dark" ? "dark" : "light"} shine={shine} className={className} />;
+  return <BrandMark size={size} shine={shine} className={className} />;
 }
 
-/** App-icon tile: the mark on the brand navy (chat avatars, boot screen). */
+/** App-icon tile: the mark on black (chat avatars, boot screen). */
 export function LogoMark({ size = 28 }: { size?: number }) {
   return (
     <span
-      className="inline-flex items-center justify-center rounded-md flex-none ring-1 ring-white/10"
-      style={{ width: size, height: size, background: "linear-gradient(135deg, #0b2a66, #041033)" }}
+      className="inline-flex items-center justify-center rounded-md flex-none bg-black ring-1 ring-white/10"
+      style={{ width: size, height: size }}
       aria-hidden
     >
-      <BrandMark size={Math.round(size * 0.72)} tone="dark" shine={false} />
+      <BrandMark size={Math.round(size * 0.5)} shine={false} />
     </span>
   );
 }
 
-/** Header/drawer brand: the mark, "INT COMPLY" and (on wide screens) the tagline. */
+/** Header/drawer brand: the mark and the "encop" wordmark. */
 export function Logo({ to = "/" }: { to?: string }) {
   return (
-    <Link to={to} className="flex items-center gap-2.5 rounded-md text-ink" aria-label="INT Comply home">
-      <ThemedMark size={28} className="floaty" />
-      <BrandName className="text-[16px]" />
-      <span className="hidden lg:block h-4 w-px bg-line-strong" aria-hidden />
-      <span className="hidden lg:block text-[10px] font-semibold uppercase tracking-[0.12em] text-ink3 whitespace-nowrap leading-[1.25]">
-        Integrated Compliance
-        <br />
-        Solutions
-      </span>
+    <Link to={to} className="flex items-center gap-2.5 rounded-md text-ink" aria-label="Encop home">
+      <ThemedMark size={24} className="floaty" />
+      <Wordmark height={20} />
     </Link>
   );
 }

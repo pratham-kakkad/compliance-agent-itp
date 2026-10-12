@@ -80,7 +80,7 @@ export function Assistant() {
         )}
       </div>
 
-      <div className="sticky bottom-0 bg-canvas pt-2 pb-4 sm:pb-6">
+      <div className="sticky bottom-0 pt-2 pb-4 sm:pb-6">
         <Composer autoFocus />
       </div>
     </div>

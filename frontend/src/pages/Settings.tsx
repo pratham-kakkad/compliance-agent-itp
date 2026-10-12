@@ -1,6 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Clock, Earth, Laptop, RotateCcw, Search, type LucideIcon } from "lucide-react";
+import { Clock, Earth, Laptop, Mail, RotateCcw, Search, Send, type LucideIcon } from "lucide-react";
+import { useAuth } from "../auth/AuthContext";
+import { api } from "../lib/api";
+import { useApi } from "../lib/useApi";
+import { useCompliance } from "../lib/ComplianceContext";
 import { useSettings, useTimezoneList } from "../lib/SettingsContext";
+import type { SmtpSettings } from "../types";
 import {
   browserTimeZone,
   fmtDateTime,
@@ -9,7 +14,9 @@ import {
   isSupportedTimeZone,
   utcOffsetLabel,
 } from "../lib/format";
-import { Banner, Button, Card, PageHeader, TextInput } from "../components/ui";
+import { Banner, Button, Card, Label, PageHeader, Select, TextInput } from "../components/ui";
+import { Field } from "../components/compliance/common";
+import { PasswordField } from "../components/auth/PasswordField";
 import { TimezoneSelect, visibleTimezoneGroups } from "../components/TimezoneSelect";
 import { notify } from "../components/shell/toast";
 
@@ -332,11 +339,290 @@ function TimeZoneSection() {
   );
 }
 
+// ------------------------------------------------------------ e-mail (SMTP)
+
+type Security = SmtpSettings["security"];
+const SECURITY_OPTIONS: { value: Security; label: string }[] = [
+  { value: "starttls", label: "STARTTLS (usually port 587)" },
+  { value: "ssl", label: "SSL / TLS (usually port 465)" },
+  { value: "none", label: "None, not encrypted (usually port 25)" },
+];
+const DEFAULT_PORT: Record<Security, number> = { starttls: 587, ssl: 465, none: 25 };
+
+function SmtpForm({ saved, onSaved }: { saved: SmtpSettings; onSaved: (s: SmtpSettings) => void }) {
+  const { me } = useAuth();
+  const uid = useId();
+  const [host, setHost] = useState(saved.host);
+  const [port, setPort] = useState(String(saved.port));
+  const [security, setSecurity] = useState<Security>(saved.security);
+  const [username, setUsername] = useState(saved.username);
+  const [password, setPassword] = useState("");
+  const [clearPassword, setClearPassword] = useState(false);
+  const [fromEmail, setFromEmail] = useState(saved.from_email);
+  const [fromName, setFromName] = useState(saved.from_name);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [testTo, setTestTo] = useState(me?.email ?? "");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const portNum = Number(port);
+  const portOk = Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535;
+  const dirty =
+    host.trim() !== saved.host ||
+    portNum !== saved.port ||
+    security !== saved.security ||
+    username.trim() !== saved.username ||
+    fromEmail.trim() !== saved.from_email ||
+    fromName.trim() !== saved.from_name ||
+    password !== "" ||
+    clearPassword;
+  const fromOk = fromEmail.trim() === "" || /^\S+@\S+$/.test(fromEmail.trim());
+
+  function pickSecurity(next: Security) {
+    // Follow the usual port for the mode, but never overwrite a port someone typed on purpose.
+    if (Number(port) === DEFAULT_PORT[security]) setPort(String(DEFAULT_PORT[next]));
+    setSecurity(next);
+  }
+
+  function discard() {
+    setHost(saved.host);
+    setPort(String(saved.port));
+    setSecurity(saved.security);
+    setUsername(saved.username);
+    setFromEmail(saved.from_email);
+    setFromName(saved.from_name);
+    setPassword("");
+    setClearPassword(false);
+    setError(null);
+  }
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!portOk || !fromOk) return;
+    setSaving(true);
+    setError(null);
+    setTestResult(null);
+    try {
+      const body: Record<string, unknown> = {
+        host: host.trim(),
+        port: portNum,
+        security,
+        username: username.trim(),
+        from_email: fromEmail.trim(),
+        from_name: fromName.trim(),
+      };
+      if (clearPassword) body.password = "";
+      else if (password) body.password = password;
+      const next = await api.put<SmtpSettings>("/settings/smtp", body);
+      onSaved(next);
+      notify.success("E-mail settings saved");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function sendTest() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await api.post<{ ok: boolean; error?: string }>("/settings/smtp/test", { to: testTo.trim() });
+      setTestResult(
+        r.ok
+          ? { ok: true, text: `A test message is on its way to ${testTo.trim()}. Check that inbox (and spam).` }
+          : { ok: false, text: r.error ?? "The message couldn't be sent." }
+      );
+    } catch (err) {
+      setTestResult({ ok: false, text: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  const testDisabled = testing || dirty || !saved.configured || !/^\S+@\S+$/.test(testTo.trim());
+
+  return (
+    <>
+      <form id={`${uid}-form`} onSubmit={(e) => void save(e)} className="flex flex-col gap-4" noValidate>
+        <div className="flex flex-wrap items-center gap-2">
+          {saved.configured ? (
+            <Label tone="good" dot>
+              Configured
+            </Label>
+          ) : (
+            <Label tone="warn" dot>
+              Not configured
+            </Label>
+          )}
+          {saved.source === "environment" && <span className="text-xs text-ink2">Using the server's SMTP_* environment values. Saving here overrides them.</span>}
+        </div>
+        {!saved.configured && (
+          <p className="text-[13px] text-ink2 -mt-1">
+            Until e-mail is set up, invites and password resets can't be mailed (you get a link to copy instead) and compliance reminders stay in the app.
+          </p>
+        )}
+
+        <div className="grid sm:grid-cols-[minmax(0,1fr)_110px] gap-3">
+          <Field label="SMTP host" hint="For example smtp.office365.com or smtp.gmail.com">
+            {(id) => <TextInput id={id} value={host} onChange={(e) => setHost(e.target.value)} placeholder="smtp.example.com" autoComplete="off" spellCheck={false} disabled={saving} />}
+          </Field>
+          <Field label="Port" error={portOk ? null : "1 to 65535"}>
+            {(id) => <TextInput id={id} inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ""))} invalid={!portOk} disabled={saving} />}
+          </Field>
+        </div>
+
+        <Field label="Security">
+          {(id) => <Select id={id} value={security} onChange={(e) => pickSecurity(e.target.value as Security)} options={SECURITY_OPTIONS} className="w-full" disabled={saving} />}
+        </Field>
+
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field label="Username" hint="Leave empty if the server needs no login.">
+            {(id) => <TextInput id={id} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" spellCheck={false} disabled={saving} />}
+          </Field>
+          <Field
+            label="Password"
+            hint={
+              clearPassword ? (
+                "The saved password will be removed when you save."
+              ) : saved.password_unreadable ? (
+                <span className="text-warn">The saved password can't be read anymore (the server's session secret changed). Enter it again.</span>
+              ) : saved.password_set ? (
+                <>
+                  <span className="text-good font-medium">Saved.</span> Leave empty to keep it.{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setClearPassword(true);
+                      setPassword("");
+                    }}
+                    className="text-accent hover:underline"
+                  >
+                    Remove it
+                  </button>
+                </>
+              ) : (
+                "Stored encrypted. It is never shown again."
+              )
+            }
+          >
+            {(id) => (
+              <PasswordField
+                id={id}
+                size="md"
+                value={password}
+                onChange={(v) => {
+                  setPassword(v);
+                  if (v) setClearPassword(false);
+                }}
+                autoComplete="new-password"
+                placeholder={saved.password_set && !clearPassword ? "Saved" : ""}
+                disabled={saving}
+              />
+            )}
+          </Field>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field label="From address" error={fromOk ? null : "Enter a valid e-mail address"} hint="Shown as the sender, e.g. no-reply@yourcompany.com">
+            {(id) => <TextInput id={id} type="email" value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} invalid={!fromOk} placeholder="no-reply@company.com" autoComplete="off" disabled={saving} />}
+          </Field>
+          <Field label="From name">
+            {(id) => <TextInput id={id} value={fromName} onChange={(e) => setFromName(e.target.value)} placeholder="Encop" autoComplete="off" disabled={saving} />}
+          </Field>
+        </div>
+
+        {error && (
+          <Banner tone="crit" title="The e-mail settings weren't saved" onDismiss={() => setError(null)}>
+            {error}
+          </Banner>
+        )}
+
+        <div className="flex justify-end gap-2">
+          {dirty && (
+            <Button disabled={saving} onClick={discard}>
+              Discard
+            </Button>
+          )}
+          <Button type="submit" variant="primary" loading={saving} disabled={!dirty || !portOk || !fromOk}>
+            Save e-mail settings
+          </Button>
+        </div>
+      </form>
+
+      <div className="mt-6 border-t border-line pt-4">
+        <h3 className="text-[13px] font-semibold text-ink">Send a test e-mail</h3>
+        <p className="text-xs text-ink2 mt-0.5">Sends a real message with the saved settings, so you see the exact error if something is wrong.</p>
+        <div className="mt-2.5 flex flex-col sm:flex-row gap-2">
+          <TextInput
+            type="email"
+            value={testTo}
+            onChange={(e) => setTestTo(e.target.value)}
+            placeholder="you@company.com"
+            aria-label="Send the test e-mail to"
+            autoComplete="off"
+            className="flex-1 min-w-0"
+          />
+          <Button leadingIcon={Send} loading={testing} disabled={testDisabled} onClick={() => void sendTest()}>
+            Send test email
+          </Button>
+        </div>
+        {dirty && <p className="text-xs text-ink3 mt-1.5">Save your changes first: the test uses the saved settings.</p>}
+        {testResult && (
+          <Banner tone={testResult.ok ? "good" : "crit"} title={testResult.ok ? "Test e-mail sent" : "The test e-mail failed"} className="mt-3">
+            {testResult.text}
+          </Banner>
+        )}
+      </div>
+    </>
+  );
+}
+
+function SmtpSection() {
+  const { can, ready } = useCompliance();
+  const allowed = ready && can("settings", "configure");
+  const { data, error, reload } = useApi<SmtpSettings>(allowed ? "/settings/smtp" : null);
+  const [override, setOverride] = useState<SmtpSettings | null>(null);
+  const current = override ?? data;
+  if (!allowed) return null;
+
+  return (
+    <SettingsSection
+      id="smtp"
+      icon={Mail}
+      title="Email (SMTP)"
+      description="The mail server Encop uses for invites, password resets and compliance reminders."
+      footer={
+        current?.updated_at ? (
+          <p className="text-xs text-ink2">
+            Last saved {fmtDateTime(current.updated_at)}
+            {current.updated_by ? ` by ${current.updated_by}` : ""}
+          </p>
+        ) : undefined
+      }
+    >
+      {error && !current ? (
+        <Banner tone="warn" title="The e-mail settings couldn't be loaded" action={<Button size="sm" onClick={reload}>Try again</Button>}>
+          {error.message}
+        </Banner>
+      ) : !current ? (
+        <p className="text-sm text-ink2">Loading…</p>
+      ) : (
+        <SmtpForm key={`${current.updated_at}|${current.configured}`} saved={current} onSaved={setOverride} />
+      )}
+    </SettingsSection>
+  );
+}
+
 /**
  * Every settings section, in page order. A new setting is one more entry here
  * plus a component that renders a <SettingsSection>.
  */
-const SECTIONS: { id: string; Component: React.ComponentType }[] = [{ id: "timezone", Component: TimeZoneSection }];
+const SECTIONS: { id: string; Component: React.ComponentType }[] = [
+  { id: "timezone", Component: TimeZoneSection },
+  { id: "smtp", Component: SmtpSection },
+];
 
 export function Settings() {
   const { error, reload, timezone } = useSettings();
@@ -348,7 +634,7 @@ export function Settings() {
 
   return (
     <div className="max-w-[960px]">
-      <PageHeader title="Settings" description="Organization-wide preferences for INT Comply" />
+      <PageHeader title="Settings" description="Organization-wide preferences for Encop" />
 
       {error && (
         <Banner

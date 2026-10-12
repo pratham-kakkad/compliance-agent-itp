@@ -12,7 +12,7 @@ export function usePersonModal() {
   return (email: string) => openModal(<PersonModalBody email={email} />);
 }
 
-const TONE_TEXT = { neutral: "text-ink", accent: "text-accent", good: "text-good", warn: "text-warn", crit: "text-crit" } as const;
+const TONE_TEXT = { neutral: "text-ink", accent: "text-info", good: "text-good", warn: "text-warn", crit: "text-crit" } as const;
 
 function PersonModalBody({ email }: { email: string }) {
   const { data: person, error, reload } = useApi<PersonDetail>(`/people/${encodeURIComponent(email)}`);

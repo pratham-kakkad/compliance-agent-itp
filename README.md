@@ -1,4 +1,4 @@
-# INT Comply
+# Encop
 
 A general compliance platform: one shell (auth, dashboard, nav) with
 self-contained "agents" plugged into it, each owning its own tables,
@@ -103,31 +103,108 @@ the frontend — not touching the others.
   toggle.
 - **Motion and 3D**: the UI is animated throughout (`frontend/src/motion.css`
   plus Framer Motion, and `three` for the 3D scenes):
-  - `components/brand/` — the INT Comply logo as inline SVG (`Logo.tsx`,
-    paths in `markPaths.ts`) and the intro splash (`Splash.tsx`): the 3D mark
-    spins in, the name types in, then it lifts away. Once per browser
-    session; click, Esc or Enter skips it; a CSS failsafe lifts it after
-    about 7 s if scripts fail.
-  - `components/three/LogoScene.tsx` — the Three.js scene (the logo extruded
-    into a metallic 3D object, orbit rings, particles) used by the splash,
-    the sign-in card and the orbit view. Falls back to the flat logo without
-    WebGL.
+  - `components/brand/` — the Encop logo (`Logo.tsx`: the mark, with a light
+    sweep, and the wordmark as a mask so it takes the text colour; the
+    panel outline for 3D is in `markShape.ts`) and the intro splash
+    (`Splash.tsx`): the 3D mark spins in, the wordmark wipes in, then it lifts
+    away. Once per browser session; click, Esc or Enter skips it; a CSS
+    failsafe lifts it after about 7 s if scripts fail.
+  - `components/three/LogoScene.tsx` — the Three.js scene (the red panel and
+    stripe extruded from the logo outline with the hand floating in front,
+    orbit rings, particles) used by the splash and the sign-in card, and just
+    the particle field behind the orbit view. Falls back to the flat logo
+    without WebGL.
   - `components/orbit/` — the **orbit dashboard**: the Dashboard's panels
     (`DeckBlock`) are shown by `BlockDeck` either as the normal grid or
-    wrapped around a rotating 3D ring with a tick-mark dial on the floor.
+    wrapped around a rotating 3D ring above a gradient-rimmed dial on the floor
+    (the stage follows the theme: a pearl stage in light mode);
+    the side panels recede and fade out toward the edges of the stage.
     Scroll, drag, arrow keys, the arrows, the dots or a click on a side
     panel turn it one panel at a time; **Unwrap** unrolls it into the grid
     and **Wrap into orbit** brings it back (choice remembered in
     localStorage `ic-deck-view`). Below 900 px wide the grid is always used.
   - `components/motion/` — number count-ups, cursor spotlight on cards,
     scroll-reveal. Everything respects `prefers-reduced-motion`.
-- **Brand**: INT Comply, "Integrated Compliance Solutions". The logo (navy
-  and copper star plus wordmark) was traced from the supplied artwork into
-  transparent SVGs: `brand/int-comply-*.svg` (original image:
-  `brand/int-comply-logo-source.png`; copies in `frontend/public/brand/`).
-  The accent colour tokens in `frontend/src/index.css` and the copper tokens
-  in `motion.css` come from it. The older Intuitive logo files in `brand/`
-  are no longer used.
+- **Brand**: Encop. The logo (red panel, stripe and pointing hand, plus the
+  "encop" wordmark) comes from the supplied artwork in
+  `brand/encop-logo-source.png`. `python scripts/make_brand_assets.py` cuts it
+  out of the black background into `brand/encop-mark.png` and
+  `brand/encop-wordmark.png` (copies, the hand layer for 3D and
+  `markShape.ts` go to `frontend/src/`; favicon and touch icon to
+  `frontend/public/`). The palette is the logo's: signal red `#e00f14` on
+  black and white, stripe red `#930d0e`, true-grey neutrals (tokens in
+  `frontend/src/index.css` and `motion.css`). Surfaces are frosted glass
+  (`.glass`: translucent, blurred, bright hairline edge) over a soft
+  blue / violet / red backdrop in both themes; stat tiles are tinted by tone
+  (`.tile`), primary buttons and the view toggle glow. Red marks interaction
+  and brand; statuses stay green / amber / a deeper critical red, in-progress
+  states are blue (`--info`) so they never read as failures, and charts draw
+  a coral-to-violet gradient (`--series-a` / `--series-b`). The older Intuitive logo files in `brand/` are no
+  longer used.
+
+## Sign-in, users and e-mail
+
+Three ways to sign in, all optional and independent: **e-mail + password**
+(always on), "Sign in with Microsoft" (when `MS_*` are set) and demo accounts
+(`ENABLE_DEMO_LOGIN`). People are matched by e-mail address, so an account
+created for password sign-in keeps working if Microsoft sign-in is added later.
+
+- **Bootstrap the first admin** (fresh install, no demo data, no Entra):
+
+  ```
+  python -m alembic upgrade head
+  python scripts/create_admin.py you@company.com "Your Name"
+  ```
+
+  It creates (or updates) the person, grants the Super Admin role and prints a
+  one-time link to set their password, built from `PUBLIC_BASE_URL`
+  (`{PUBLIC_BASE_URL}/ui/invite/<token>`, valid 7 days, single use). Pass
+  `--password "a long passphrase"` to set the password directly instead. For a
+  real deployment also set `ENABLE_DEMO_LOGIN=false` and
+  `COMPLIANCE_SUPER_ADMINS=` to your own addresses (the default bootstrap admin
+  is the demo manager) — the demo accounts are still created in the database at
+  startup, but nobody can sign in as them once demo login is off.
+- **Adding people**: Administration > Users > Add user. With "Send invite" on,
+  the person gets an invite link (e-mailed when SMTP is configured; always
+  shown to the admin to copy). Row actions: Resend invite, Send reset link,
+  Deactivate / Reactivate. Users show a status (Invited / Active / Disabled)
+  and their last sign-in. Only a Super Admin can send links for a Super Admin.
+- **Passwords**: min 10 characters, hashed with scrypt (standard library,
+  `app/auth/passwords.py`). Invite and reset links carry a random token of which
+  only the SHA-256 is stored; invites last 7 days, resets 1 hour, both are single
+  use and a new link replaces the old one. After 5 wrong passwords an account is
+  locked for 15 minutes, and an address that keeps failing is throttled (in
+  memory, per process). Every failure shows the same message. Forgot password
+  (`/ui/forgot`) always answers the same and only sends mail when the account
+  exists and SMTP is set up. Signed-in users can change their password from the
+  account menu.
+- **E-mail (SMTP)**: `app/mailer.py` (standard library `smtplib`). Defaults come
+  from `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY` (`none` | `starttls` | `ssl`),
+  `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`; an
+  administrator can instead (or on top) configure it on Settings > Email (SMTP)
+  (needs the `settings.configure` permission), which overrides the environment.
+  The saved password is encrypted at rest (Fernet, key derived from
+  `SESSION_SECRET`: if you change that secret, re-enter the SMTP password) and is
+  never returned by the API (`password_set: true/false` only). "Send test email"
+  (`POST /settings/smtp/test`) sends a real message and shows the exact error.
+  Templates are in `app/email_templates.py`. People can also e-mail each other
+  about compliance from templates (see "E-mailing people about their compliance").
+- **Notification e-mail**: reminders and escalations were only recorded
+  (`email_status = pending`); once SMTP is configured `deliver_pending`
+  (`app/compliance/notify.py`) mails them after every compliance tick and on
+  `POST /compliance/admin/send-pending`. Failed ones are retried up to 3 times;
+  nothing is sent (and rows stay pending) while SMTP isn't configured; notices
+  for inactive people, demo accounts or older than 7 days are marked `skipped`.
+- Settings: `PUBLIC_BASE_URL` (default `http://localhost:8010`) is the base of
+  every link in an e-mail. Endpoints: `POST /auth/password-login`,
+  `GET /auth/invite/{token}`, `POST /auth/invite/accept`,
+  `POST /auth/forgot-password`, `POST /auth/reset-password`,
+  `POST /auth/change-password`; admin: `POST /compliance/admin/users`
+  (`send_invite`), `POST /compliance/admin/users/{email}/invite`,
+  `POST /compliance/admin/users/{email}/reset-password`.
+- Tests: `TEST_DB_NAME=my_test_db python -m pytest` runs against a separate
+  test database (default `meeting_compliance_test`), handy when several runs
+  share one Postgres.
 
 ## Compliance engine
 
@@ -204,6 +281,78 @@ in the database itself, and each row stores a hash chained to the previous one;
 *Audit log → Verify integrity* recomputes the chain. In-app notifications are
 real (bell in the header); e-mail is recorded as intent
 (`notifications.email_status = 'pending'`) for a sender to pick up later.
+
+### E-mailing people about their compliance
+
+A reviewer, manager or admin can e-mail a person, a team, a department or the
+assignees of one compliance (a warning, a reminder, a thank-you) from reusable
+**e-mail templates**, preview exactly what each person will get, and send. Code:
+`app/compliance/messaging.py` (templates, variables, recipients, sending),
+`app/compliance/mail_api.py` (HTTP), `app/email_templates.py`
+(`compliance_message_email`, the branded layout); UI: *Administration → Email
+templates* and the **Email** / **Send a warning** buttons (one reusable dialog,
+`frontend/src/components/compliance/email/SendEmailDialog.tsx`) on the item page,
+the compliance's People tab (select people, or quick-select all overdue / not
+started / rejected), the scoreboard (a person, or all repeat offenders), a user's
+page (with their sent-mail history), teams and departments, and the review queue.
+
+- **Templates.** Five built-in ones (Friendly reminder, Formal warning, Final
+  notice, Request for status update, Thank you), editable, never deletable, with
+  *Reset to default*; add your own, duplicate, turn off. Each has a kind
+  (reminder, warning, final, request, thanks, custom) that only sets its colour.
+  Plain text, blank line = new paragraph, lines starting with a bullet or a dash
+  become a list. The HTML is the Encop layout with an "Open in Encop" button and a
+  plain-text part; every value is HTML-escaped.
+- **Variables** are `{{name}}` and are filled by one regex pass (nothing is ever
+  evaluated). `GET /compliance/email-variables` lists them (the *Insert variable*
+  menu): `name`, `first_name`, `email`, `manager_name`, `sender_name`,
+  `sender_email`, `org_name`, `today`, `compliance_name`, `category`, `priority`,
+  `due_date`, `days_overdue`, `days_until_due`, `status`, `link`, `open_items`
+  (bullet list), `open_count`, `overdue_count`. Written about one item they describe
+  that item; written to a person they summarise the person's open items ("3 open
+  compliance items", earliest deadline...). An unknown `{{name}}` is refused when
+  saving a template and blocks a send; the preview flags it.
+- **Who may send.** Anyone holding at least one of `compliance.assign`,
+  `compliance.edit`, `submission.approve` or `submission.reject`, and **every
+  recipient must be inside the scope of one of those permissions the sender holds**
+  (the union of the scopes; Super Admins reach everyone). Recipients are always
+  resolved on the server; a client-provided list is only a request, so a manager
+  cannot e-mail outside their reporting line even by crafting the request. Managing
+  templates needs `compliance.configure` (Super Admin, Compliance Admin); any sender
+  can use the active templates. No new permission exists, so already-seeded
+  databases need no change. Reading the sent-mail history needs a send permission,
+  `compliance.configure` or `audit_log.view`, and shows mail the viewer sent plus
+  mail to people (and about items) they may see.
+- **Skipped, with a reason:** outside your scope, inactive, demo account (fake
+  address), no e-mail address, yourself, listed twice, and (for reminders,
+  warnings, final notices and requests about a *person*) nothing open to chase.
+  One batch is at most 200 people; one sender may e-mail 500 people an hour; a
+  warning or final notice to more than 20 people needs an explicit confirm (checked
+  by the server too). SMTP must be configured (Settings → Email), otherwise the
+  send answers 409 and says where to fix it.
+- **Sending** never holds a request open: `POST /compliance/emails/send` records a
+  `sent_emails` row per recipient (`queued`, or `skipped` with the reason), returns a
+  `batch_id` and a background task sends them one by one, committing each row. A
+  failure is recorded with the mail server's message and is never retried
+  automatically; one failure doesn't stop the rest, but three connection or login
+  failures in a row stop the batch (the rest are marked skipped). Poll
+  `GET /compliance/emails/batches/{batch_id}` for sent / failed / skipped. A batch
+  lost to a restart shows its unsent rows as failed after 15 minutes. Options: cc
+  each person's manager (when they have one), send the sender a copy (a Bcc for one
+  person, one summary mail for many), and also add an in-app notice (kind
+  `message`, under the bell; not mailed a second time). Replies go to the sender.
+- **Audit.** `email.batch_started` / `email.batch_finished` (who, template,
+  recipient count, batch id, counts; never the body) and `email_template.*`
+  events. The full text of every message is in `sent_emails`.
+- **Endpoints.** `GET /compliance/email-templates` (active), `GET
+  /compliance/email-variables`, `POST /compliance/emails/preview`,
+  `POST /compliance/emails/send`, `GET /compliance/emails/batches/{id}`,
+  `GET /compliance/emails/history?person=&obligation_id=&compliance_id=&batch_id=`;
+  admin: `GET|POST /compliance/admin/email-templates`,
+  `PATCH|DELETE /compliance/admin/email-templates/{id}`, `POST .../{id}/reset`,
+  `POST .../preview` (sample data), `POST .../test` (sends to your own address).
+  Recipients are `{emails}`, `{team_id}`, `{department_id}`,
+  `{compliance_id, status, only}` or `{obligation_id}`, plus `exclude`.
 
 ### Evidence files
 

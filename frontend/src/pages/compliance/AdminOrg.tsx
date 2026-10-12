@@ -11,6 +11,7 @@ import type { Column } from "../../components/ui";
 import { useOverlay } from "../../components/Modal";
 import { Field, errText, toastError } from "../../components/compliance/common";
 import { NoAccess, PeoplePicker, PersonSelect, useConfirm, useLookup } from "../../components/compliance/admin/parts";
+import { EmailButton } from "../../components/compliance/email/EmailButton";
 
 const sameSet = (a: string[], b: string[]) => a.length === b.length && [...a].sort().join("|") === [...b].sort().join("|");
 
@@ -116,9 +117,20 @@ function DepartmentsPanel({ depts, reload }: { depts: ApiState<AdminDepartment[]
       key: "actions",
       header: <span className="sr-only">Actions</span>,
       align: "right",
-      width: "96px",
+      width: "132px",
       cell: (d) => (
         <div className="flex justify-end gap-1">
+          <EmailButton
+            iconOnly
+            label={`Email the ${d.name} department`}
+            disabled={d.members === 0}
+            target={() => ({
+              recipients: { department_id: d.id },
+              heading: `Email the ${d.name} department`,
+              subtitle: `${d.members} ${d.members === 1 ? "person" : "people"}. You are only offered the people you may e-mail. Replies go to you.`,
+              defaultKind: "reminder",
+            })}
+          />
           {canEdit && <IconButton icon={Pencil} label={`Rename ${d.name}`} size="sm" onClick={() => { setEditing(d.id); setDraft(d.name); }} />}
           {canDelete && <IconButton icon={Trash2} label={`Delete ${d.name}`} size="sm" onClick={() => remove(d)} />}
         </div>
@@ -331,9 +343,20 @@ function TeamsPanel({ teams, depts, lookup, reload }: { teams: ApiState<AdminTea
       key: "actions",
       header: <span className="sr-only">Actions</span>,
       align: "right",
-      width: "130px",
+      width: "170px",
       cell: (t) => (
         <div className="flex justify-end gap-1">
+          <EmailButton
+            iconOnly
+            label={`Email the ${t.name} team`}
+            disabled={t.members.length === 0 && !t.lead_email}
+            target={() => ({
+              recipients: { team_id: t.id },
+              heading: `Email the ${t.name} team`,
+              subtitle: "Members and the lead. You are only offered the people you may e-mail. Replies go to you.",
+              defaultKind: "reminder",
+            })}
+          />
           {canEdit && (
             <Button size="sm" leadingIcon={Pencil} onClick={() => openModal(<TeamDialog team={t} onSaved={reload} />)} aria-label={`Edit ${t.name}`}>
               Edit

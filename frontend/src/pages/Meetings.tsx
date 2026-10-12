@@ -1,32 +1,38 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarX2, ChevronDown, List, Users } from "lucide-react";
+import { CalendarX2, ChevronDown, Gauge, List, Repeat, Users } from "lucide-react";
 import clsx from "clsx";
 import { useApi } from "../lib/useApi";
-import { useDebouncedValue } from "../lib/useDebouncedValue";
 import { fmtDate } from "../lib/format";
 import { duration, ease } from "../lib/motion";
+import { downloadCsv, type CsvColumn } from "../lib/csv";
+import { useListFilters, type FilterField, type SortDef } from "../lib/useListFilters";
 import { useAuth } from "../auth/AuthContext";
 import type { MeetingListItem, MeetingListResponse } from "../types";
 import {
   Avatar,
-  Button,
   Card,
   DataTable,
-  EmptyState,
   ErrorState,
+  FilterBar,
+  FilterEmpty,
   Label,
   PageHeader,
   RateMeter,
-  SearchInput,
   SegmentedControl,
-  Select,
   TableSkeleton,
   type Column,
+  type QuickFilter,
 } from "../components/ui";
 import { useMeetingPanel } from "../components/MeetingPanel";
 
 type View = "list" | "organizer";
+type Sorting = { sort: { key: string; dir: "asc" | "desc" }; onSortChange: (s: { key: string; dir: "asc" | "desc" }) => void };
+
+/** Below this attendance rate a meeting counts as at risk (the app's "red" band). */
+const AT_RISK = 0.75;
+const isRecurring = (m: MeetingListItem) => m.recurrence !== "once";
 
 function useColumns(showOrganizer: boolean): Column<MeetingListItem>[] {
   const { displayName } = useAuth();
@@ -67,6 +73,7 @@ function useColumns(showOrganizer: boolean): Column<MeetingListItem>[] {
         key: "last",
         header: "Last occurrence",
         hideBelow: "sm",
+        sortFirst: "desc",
         sortValue: (m) => new Date(m.last_occurrence).getTime(),
         cell: (m) => <span className="font-mono text-xs text-ink2 whitespace-nowrap">{fmtDate(m.last_occurrence)}</span>,
       },
@@ -83,7 +90,17 @@ function useColumns(showOrganizer: boolean): Column<MeetingListItem>[] {
   }, [showOrganizer, displayName]);
 }
 
-function OrganizerGroup({ email, items, onOpen }: { email: string; items: MeetingListItem[]; onOpen: (m: MeetingListItem) => void }) {
+function OrganizerGroup({
+  email,
+  items,
+  onOpen,
+  sorting,
+}: {
+  email: string;
+  items: MeetingListItem[];
+  onOpen: (m: MeetingListItem) => void;
+  sorting: Sorting;
+}) {
   const { displayName } = useAuth();
   const [open, setOpen] = useState(true);
   const columns = useColumns(false);
@@ -118,7 +135,7 @@ function OrganizerGroup({ email, items, onOpen }: { email: string; items: Meetin
               getRowKey={(m) => m.series_id}
               onRowClick={onOpen}
               rowLabel={(m) => `Open ${m.title}`}
-              defaultSort={{ key: "rate", dir: "asc" }}
+              {...sorting}
             />
           </motion.div>
         )}
@@ -127,36 +144,121 @@ function OrganizerGroup({ email, items, onOpen }: { email: string; items: Meetin
   );
 }
 
+const QUICK: QuickFilter[] = [
+  { id: "risk", label: "At risk (under 75%)", icon: Gauge, field: "at_risk" },
+  { id: "recurring", label: "Recurring", icon: Repeat, field: "type", value: "recurring" },
+  { id: "recent", label: "Held in the last 7 days", field: "last", value: "last7" },
+];
+
 export function Meetings() {
   const openMeeting = useMeetingPanel();
-  const [search, setSearch] = useState("");
-  const [recurrence, setRecurrence] = useState("");
-  const [view, setView] = useState<View>("list");
-  const q = useDebouncedValue(search, 250);
+  const { displayName } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const view: View = params.get("view") === "organizer" ? "organizer" : "list";
+  const setView = (v: View) =>
+    setParams(
+      (p) => {
+        const next = new URLSearchParams(p);
+        if (v === "organizer") next.set("view", "organizer");
+        else next.delete("view");
+        return next;
+      },
+      { replace: true }
+    );
 
-  const params = new URLSearchParams();
-  if (q) params.set("search", q);
-  if (recurrence) params.set("recurrence", recurrence);
-  if (view === "organizer") params.set("group_by", "organizer");
-  const { data, error, loading, initialLoading, reload } = useApi<MeetingListResponse>(`/meetings?${params.toString()}`);
+  const { data, error, loading, initialLoading, reload } = useApi<MeetingListResponse>("/meetings");
+  const items = data?.items;
   const columns = useColumns(true);
 
-  // The response shape must match the current view; while the other view loads, show the skeleton.
-  const matchesView = data && (view === "organizer" ? data.grouped_by === "organizer" : data.grouped_by !== "organizer");
-  const groups = data?.grouped_by === "organizer" ? Object.entries(data.groups) : [];
-  const count = data ? (data.grouped_by === "organizer" ? groups.reduce((n, [, g]) => n + g.length, 0) : data.items.length) : 0;
-  const filtered = Boolean(q || recurrence);
-  const clear = () => {
-    setSearch("");
-    setRecurrence("");
-  };
+  const fields = useMemo<FilterField<MeetingListItem>[]>(() => {
+    const byOrg = new Map<string, number>();
+    for (const m of items ?? []) byOrg.set(m.organizer_email, (byOrg.get(m.organizer_email) ?? 0) + 1);
+    const recurring = (items ?? []).filter(isRecurring).length;
+    return [
+      {
+        type: "multi",
+        key: "type",
+        label: "Type",
+        options: [
+          { value: "recurring", label: "Recurring", count: recurring },
+          { value: "once", label: "One-time", count: (items?.length ?? 0) - recurring },
+        ],
+        get: (m) => (isRecurring(m) ? "recurring" : "once"),
+      },
+      {
+        type: "multi",
+        key: "organizer",
+        label: "Organizer",
+        options: Array.from(byOrg, ([email, count]) => ({ value: email, label: displayName(email), count })).sort((a, b) => a.label.localeCompare(b.label)),
+        get: (m) => m.organizer_email,
+      },
+      { type: "date", key: "last", label: "Last occurrence", presets: ["today", "last7", "last30", "month", "custom"], get: (m) => m.last_occurrence },
+      {
+        type: "range",
+        key: "rate",
+        label: "Attendance rate",
+        suffix: "%",
+        min: 0,
+        max: 100,
+        get: (m) => (m.attendance_rate == null ? null : Math.round(m.attendance_rate * 100)),
+      },
+      { type: "range", key: "slots", label: "Required slots", min: 0, hint: "How many required attendances the series has had.", get: (m) => m.required_total },
+      {
+        type: "toggle",
+        key: "at_risk",
+        label: "At risk only",
+        hint: "Attendance rate under 75%.",
+        chip: (() => "At risk (under 75%)") as never,
+        test: (m) => m.attendance_rate != null && m.attendance_rate < AT_RISK,
+      },
+    ];
+  }, [items, displayName]);
+
+  const sorts = useMemo<SortDef<MeetingListItem>[]>(
+    () => [
+      { key: "rate", label: "Attendance rate", value: (m) => m.attendance_rate },
+      { key: "title", label: "Title", value: (m) => m.title.toLowerCase() },
+      { key: "organizer", label: "Organizer", value: (m) => displayName(m.organizer_email).toLowerCase() },
+      { key: "last", label: "Last occurrence", value: (m) => new Date(m.last_occurrence).getTime(), firstDir: "desc" },
+      { key: "slots", label: "Required slots", value: (m) => m.required_total, firstDir: "desc" },
+    ],
+    [displayName]
+  );
+
+  const lf = useListFilters<MeetingListItem>({
+    id: "meetings",
+    fields,
+    sorts,
+    defaultSort: { key: "rate", dir: "asc" },
+    tieBreak: [{ key: "title", dir: "asc" }],
+    searchText: (m) => `${m.title} ${displayName(m.organizer_email)} ${m.organizer_email}`,
+  });
+
+  const rows = useMemo(() => (items ? lf.apply(items) : []), [items, lf.apply]);
+  const groups = useMemo(() => {
+    const g = new Map<string, MeetingListItem[]>();
+    for (const m of rows) g.set(m.organizer_email, [...(g.get(m.organizer_email) ?? []), m]);
+    return Array.from(g).sort((a, b) => displayName(a[0]).localeCompare(displayName(b[0])));
+  }, [rows, displayName]);
+
+  const sorting: Sorting = { sort: lf.sort, onSortChange: lf.setSort };
+
+  const exportColumns: CsvColumn<MeetingListItem>[] = [
+    { header: "Meeting", value: (m) => m.title },
+    { header: "Organizer", value: (m) => displayName(m.organizer_email) },
+    { header: "Organizer email", value: (m) => m.organizer_email },
+    { header: "Type", value: (m) => (isRecurring(m) ? "Recurring" : "One-time") },
+    { header: "Required slots", value: (m) => m.required_total },
+    { header: "Attendance rate (%)", value: (m) => (m.attendance_rate == null ? "" : Math.round(m.attendance_rate * 100)) },
+    { header: "Last occurrence", value: (m) => m.last_occurrence },
+  ];
 
   const empty = (
-    <EmptyState
+    <FilterEmpty
+      lf={lf}
       icon={CalendarX2}
-      title={filtered ? "No meetings match your filters" : "No meetings yet"}
-      description={filtered ? "Try a different search or clear the filters." : "Meetings you or your reports are required at will appear here."}
-      action={filtered && <Button onClick={clear}>Clear filters</Button>}
+      emptyTitle="No meetings yet"
+      emptyDescription="Meetings you or your reports are required at will appear here."
     />
   );
 
@@ -164,42 +266,40 @@ export function Meetings() {
     <div>
       <PageHeader title="Meetings" description="Every series you or your reports are expected at" />
 
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search meetings…" className="w-full sm:w-72" />
-        <Select value={recurrence} onChange={(e) => setRecurrence(e.target.value)} aria-label="Meeting type">
-          <option value="">All types</option>
-          <option value="once">One-time</option>
-          <option value="daily">Recurring</option>
-        </Select>
-        <SegmentedControl
-          aria-label="View"
-          value={view}
-          onChange={setView}
-          options={[
-            { value: "list", label: "List", icon: List },
-            { value: "organizer", label: "By organizer", icon: Users },
-          ]}
-        />
-        {data && (
-          <span className="ml-auto text-[13px] text-ink2 tabular" aria-live="polite">
-            {count} meeting{count === 1 ? "" : "s"}
-          </span>
-        )}
-      </div>
+      <FilterBar
+        lf={lf}
+        noun={["meeting", "meetings"]}
+        total={items?.length}
+        shown={items ? rows.length : undefined}
+        quick={QUICK}
+        searchPlaceholder="Search title or organizer…"
+        onExport={() => downloadCsv("meetings", exportColumns, rows)}
+        trailing={
+          <SegmentedControl
+            aria-label="View"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: "list", label: "List", icon: List },
+              { value: "organizer", label: "By organizer", icon: Users },
+            ]}
+          />
+        }
+      />
 
       {error && !data ? (
         <Card>
           <ErrorState message={error.message} onRetry={reload} />
         </Card>
-      ) : initialLoading || !matchesView ? (
+      ) : initialLoading || !items ? (
         <Card padding="none" className="overflow-hidden">
           <TableSkeleton rows={6} columns={4} />
         </Card>
-      ) : data.grouped_by === "organizer" ? (
+      ) : view === "organizer" ? (
         groups.length ? (
           <div className={clsx("flex flex-col gap-4 transition-opacity", loading && "opacity-60")}>
-            {groups.map(([org, items]) => (
-              <OrganizerGroup key={org} email={org} items={items} onOpen={(m) => openMeeting(m.series_id)} />
+            {groups.map(([org, list]) => (
+              <OrganizerGroup key={org} email={org} items={list} onOpen={(m) => openMeeting(m.series_id)} sorting={sorting} />
             ))}
           </div>
         ) : (
@@ -209,11 +309,11 @@ export function Meetings() {
         <Card padding="none" className="overflow-hidden">
           <DataTable
             columns={columns}
-            rows={data.items}
+            rows={rows}
             getRowKey={(m) => m.series_id}
             onRowClick={(m) => openMeeting(m.series_id)}
             rowLabel={(m) => `Open ${m.title}`}
-            defaultSort={{ key: "rate", dir: "asc" }}
+            {...sorting}
             dim={loading}
             rank
             empty={empty}

@@ -24,6 +24,24 @@ class Settings(BaseSettings):
     ms_tenant_id: str = ""
     ms_redirect_uri: str = "http://localhost:8010/auth/callback"
 
+    # Absolute base URL of the app as people reach it, used to build links in
+    # e-mails (invites, password resets, notifications). The SPA lives under
+    # /ui/, so an invite link is {PUBLIC_BASE_URL}/ui/invite/<token>.
+    public_base_url: str = "http://localhost:8010"
+
+    # --- Outgoing e-mail (SMTP), see app/mailer.py ---
+    # These are the defaults; whatever an administrator saves on the Settings
+    # page (Email (SMTP) card, stored in app_settings) overrides them.
+    # smtp_security: "none" | "starttls" | "ssl".
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_security: str = "starttls"
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_from_name: str = "Encop"
+    smtp_timeout: int = 20
+
     # Real Teams attendance sync (GraphTeamsProvider) for real (non-demo)
     # users — only runs once an Azure AD app registration is configured;
     # needs the application permissions from HELPDESK_EMAIL_DRAFT.md granted

@@ -1,32 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { LogoScene } from "../three/LogoScene";
-import { LogoMark } from "./Logo";
+import { LogoMark, Wordmark } from "./Logo";
 import { SPLASH_SEEN_KEY, setSplash } from "../../lib/splash";
 
 const AFTER_READY_MS = 2900; // how long the splash holds once the 3D scene is on screen
 const MAX_WAIT_MS = 6000; // never keep the splash longer than this, whatever happens
 const EXIT_MS = 800;
 
-function Letters({ text, className, start, step = 55 }: { text: string; className?: string; start: number; step?: number }) {
-  return (
-    <span aria-label={text}>
-      {Array.from(text).map((ch, i) => (
-        <span
-          key={i}
-          aria-hidden
-          className={`splash-letter inline-block ${className ?? ""}`}
-          style={{ animationDelay: `${start + i * step}ms` }}
-        >
-          {ch === " " ? " " : ch}
-        </span>
-      ))}
-    </span>
-  );
-}
-
 /**
- * Full-screen brand intro: the 3D INT Comply mark spins in over a particle field, the name types in, then
+ * Full-screen brand intro: the 3D Encop mark spins in over a particle field, the wordmark wipes in, then
  * the whole thing lifts away to reveal the app. Plays once per browser session; click, Esc or Enter skips it.
  * The boot script in index.html sets `data-splash` before first paint (and hides this with CSS when it should
  * not play); a CSS failsafe lifts it after ~7 s even if scripts fail.
@@ -85,20 +68,19 @@ export function Splash() {
         variant="splash"
         onReady={() => setReady(true)}
         className="absolute inset-0"
-        fallback={<LogoMark size={220} tone="dark" intro className="absolute left-1/2 top-[38%] -translate-x-1/2 -translate-y-1/2" />}
+        fallback={<LogoMark size={160} intro className="absolute left-1/2 top-[38%] -translate-x-1/2 -translate-y-1/2" />}
       />
       <div className="pointer-events-none absolute inset-x-0 bottom-[11%] flex flex-col items-center px-6 text-center">
-        <h1 className="text-[clamp(30px,6vw,64px)] font-extrabold leading-none tracking-[0.04em]">
-          <Letters text="INT" start={1000} className="text-[#8db3f5]" />{" "}
-          <Letters text="COMPLY" start={1250} className="text-copper" />
+        <h1 className="splash-word text-white">
+          <Wordmark height={64} />
         </h1>
-        <p className="splash-tag mt-4 text-[clamp(10px,1.5vw,14px)] font-bold uppercase tracking-[0.34em] text-[#aab4c8]">
-          Integrated Compliance Solutions
+        <p className="splash-tag mt-5 text-[clamp(10px,1.5vw,13px)] font-semibold uppercase tracking-[0.34em] text-white/55">
+          Compliance Platform
         </p>
-        <div className="splash-bar mt-8 h-[3px] w-[min(280px,60vw)] overflow-hidden rounded-full bg-white/10">
+        <div className="splash-bar mt-8 h-[2px] w-[min(240px,60vw)] overflow-hidden rounded-full bg-white/10">
           <span
             className="block h-full origin-left rounded-full"
-            style={{ background: "var(--copper-grad)", animation: `splash-load ${AFTER_READY_MS + 400}ms cubic-bezier(0.2,0.6,0.2,1) both` }}
+            style={{ background: "var(--brand-grad)", animation: `splash-load ${AFTER_READY_MS + 400}ms cubic-bezier(0.2,0.6,0.2,1) both` }}
           />
         </div>
       </div>

@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#061436" />
-    <title>INT Comply — Integrated Compliance Solutions</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#000000" />
+    <title>Encop — Compliance Platform</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -29,7 +29,7 @@
       // Apply the saved theme before first paint to avoid a light/dark flash.
       try {
         var m = localStorage.getItem("mc-theme");
-        var dark = m === "dark" || ((m === null || m === "system") && matchMedia("(prefers-color-scheme: dark)").matches);
+        var dark = m === "dark" || (m === "system" && matchMedia("(prefers-color-scheme: dark)").matches); // light by default
         if (dark) document.documentElement.classList.add("dark");
       } catch (e) {}
     </script>

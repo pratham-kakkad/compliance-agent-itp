@@ -181,10 +181,30 @@ export interface AttendanceDeptStat {
   days_tracked: number;
 }
 
+export interface AttendanceInsights {
+  headcount: number;
+  /** The latest normal working day in the data (a weekend with a couple of punches doesn't count); null before the first import. */
+  latest_day: string | null;
+  /** The very latest date that has any punches. */
+  latest_data_day: string | null;
+  present_latest: number;
+  present_rate: number | null;
+  quiet_days: number;
+  quiet_count: number;
+  quiet: { emp_code: string; name: string; department: string | null; last_seen: string | null; days_quiet: number | null }[];
+  /** Lowest first. rate = share of the department present on an average working day. */
+  by_department: { department: string; headcount: number; rate: number }[];
+  weekly_presence: { week_start: string; rate: number | null }[];
+  window_days: number;
+  last_import_at: string | null;
+  last_import_file: string | null;
+}
+
 export interface AttendanceDashboardPayload {
   summary: AttendanceSummary;
   trend: AttendanceTrendPoint[];
   by_department: AttendanceDeptStat[];
+  insights: AttendanceInsights;
 }
 
 export interface AttendanceListItem {
@@ -271,4 +291,40 @@ export interface TimezoneOption {
 export interface TimezoneList {
   timezones: TimezoneOption[];
   default: string;
+}
+
+/** A row of GET /attendance: the roster entry plus its recent presence. */
+export interface AttendanceEmployeeRow extends AttendanceListItem {
+  /** Share of the last 30 working days the person was present (0..1); null before any data. */
+  rate: number | null;
+  /** Present on the latest working day. */
+  present_latest: boolean;
+}
+
+// --- Local sign-in and e-mail (appended: declaration merging extends the interfaces above) ---
+export interface AuthConfig {
+  /** E-mail + password sign-in is always on. */
+  password_login_enabled?: boolean;
+  /** Outgoing e-mail (SMTP) is set up, so invite / reset mails are really sent. */
+  smtp_configured?: boolean;
+}
+
+export interface Me {
+  has_password?: boolean;
+}
+
+export interface SmtpSettings {
+  host: string;
+  port: number;
+  security: "none" | "starttls" | "ssl";
+  username: string;
+  from_email: string;
+  from_name: string;
+  /** The password itself is never returned, only whether one is saved. */
+  password_set: boolean;
+  password_unreadable: boolean;
+  configured: boolean;
+  source: "saved" | "environment" | "none";
+  updated_at: string | null;
+  updated_by: string | null;
 }

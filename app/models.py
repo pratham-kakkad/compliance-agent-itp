@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,6 +32,21 @@ class OrgUser(Base):
         ForeignKey("departments.id", ondelete="SET NULL"), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default=text("true"))
+
+    # Local sign-in (app/auth/passwords.py, app/api/auth.py). Optional: Microsoft
+    # and demo sign-in don't need any of these. Matching is by e-mail, so an
+    # account created here keeps working if Microsoft sign-in is added later.
+    password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    password_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # One outstanding one-time token at a time (an invite or a password reset);
+    # only its SHA-256 is stored. invite_purpose is "invite" or "reset".
+    invite_token_hash: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    invite_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    invite_purpose: Mapped[str | None] = mapped_column(String, nullable=True)
+    invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default=text("0"))
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class MeetingSeries(Base):

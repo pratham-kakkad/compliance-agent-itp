@@ -104,3 +104,67 @@ def test_attendance_endpoints_require_login_and_list_employees(client, db_sessio
     assert detail["total_days_tracked"] == 1
     assert detail["days"][0]["punch_count"] == 2
     assert client.get("/attendance/NOPE").status_code == 404
+
+
+def test_dashboard_insights_for_admins(client, db_session):
+    from datetime import timedelta
+
+    from app.attendance.models import AttendanceEmployee
+
+    day = date(2026, 9, 30)
+    people = [("P1", "Eng"), ("P2", "Eng"), ("P3", "Sales"), ("P4", "Sales")]
+    for code, dept in people:
+        db_session.add(AttendanceEmployee(emp_code=code, name=f"Person {code}", company="Acme", department=dept))
+    db_session.flush()
+    # Latest day (30 Sep): P1, P2, P3 present. P4 was last seen 12 days earlier; P5 never.
+    for code in ("P1", "P2", "P3"):
+        db_session.add(AttendanceDay(emp_code=code, work_date=day, punch_count=2))
+    db_session.add(AttendanceDay(emp_code="P1", work_date=day - timedelta(days=1), punch_count=2))
+    db_session.add(AttendanceDay(emp_code="P4", work_date=day - timedelta(days=12), punch_count=2))
+    db_session.add(AttendanceEmployee(emp_code="P5", name="Person P5", company="Acme", department=None))
+    db_session.commit()
+
+    login_as(client, "ava.martinez@corp.com")
+    ins = client.get("/attendance/dashboard").json()["insights"]
+    assert ins["headcount"] == 5 and ins["latest_day"] == "2026-09-30"
+    assert ins["present_latest"] == 3 and round(ins["present_rate"], 2) == 0.6
+    # Not seen in 7 days: P4 and P5 (never), never-seen first.
+    assert ins["quiet_count"] == 2 and [q["emp_code"] for q in ins["quiet"]] == ["P5", "P4"]
+    assert ins["quiet"][0]["last_seen"] is None and ins["quiet"][1]["days_quiet"] == 12
+    # 4 working days in the window (29 Sep, 30 Sep, 18 Sep): Eng has 2 people.
+    dept = {d["department"]: d for d in ins["by_department"]}
+    assert dept["Eng"]["headcount"] == 2 and 0 < dept["Eng"]["rate"] <= 1
+    assert dept["Unassigned"]["rate"] == 0
+    assert ins["by_department"][0]["rate"] <= ins["by_department"][-1]["rate"]  # lowest first
+    assert ins["weekly_presence"] and all(0 <= w["rate"] <= 1 for w in ins["weekly_presence"])
+
+
+def test_dashboard_insights_with_no_data(client):
+    login_as(client, "ava.martinez@corp.com")
+    ins = client.get("/attendance/dashboard").json()["insights"]
+    assert ins["latest_day"] is None and ins["present_rate"] is None and ins["quiet"] == [] and ins["by_department"] == []
+
+
+def test_insights_ignore_weekends_when_picking_the_day_and_rates(client, db_session):
+    from datetime import timedelta
+
+    from app.attendance.models import AttendanceEmployee
+
+    codes = [f"W{i}" for i in range(10)]
+    for c in codes:
+        db_session.add(AttendanceEmployee(emp_code=c, name=c, company="Acme", department="Eng"))
+    db_session.flush()
+    friday = date(2026, 9, 18)  # a Friday
+    for back in range(0, 5):  # Mon 14 .. Fri 18: eight of ten people each day
+        for c in codes[:8]:
+            db_session.add(AttendanceDay(emp_code=c, work_date=friday - timedelta(days=back), punch_count=2))
+    db_session.add(AttendanceDay(emp_code="W9", work_date=friday + timedelta(days=2), punch_count=1))  # Sunday: one person on call
+    db_session.commit()
+
+    login_as(client, "ava.martinez@corp.com")
+    ins = client.get("/attendance/dashboard").json()["insights"]
+    assert ins["latest_data_day"] == "2026-09-20"  # the Sunday has data...
+    assert ins["latest_day"] == "2026-09-18"  # ...but the day we report on is the Friday
+    assert ins["present_latest"] == 8 and round(ins["present_rate"], 2) == 0.8
+    assert round(ins["by_department"][0]["rate"], 2) == 0.8  # the Sunday doesn't pull it down
+    assert round(ins["weekly_presence"][-1]["rate"], 2) == 0.8

@@ -345,6 +345,10 @@ class Notification(Base):
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Email is not delivered yet: "pending" rows are what an SMTP/Graph sender would pick up.
     email_status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    # Set by app/compliance/notify.py deliver_pending: pending -> sent | failed | skipped.
+    email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    email_error: Mapped[str | None] = mapped_column(Text)
+    email_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
 
 
 class AuditEvent(Base):
@@ -388,3 +392,63 @@ AUDIT_IMMUTABLE_DDL = [
 
 for _stmt in AUDIT_IMMUTABLE_DDL:
     event.listen(AuditEvent.__table__, "after_create", DDL(_stmt))
+
+
+# ----------------------------------------------------------- e-mail templates
+
+
+class EmailTemplate(Base):
+    """A reusable message a reviewer / manager / admin can send about someone's
+    compliance. Plain text with {{variables}} (see app/compliance/messaging.py).
+    System templates (is_system) are seeded, editable and can be reset, never deleted."""
+
+    __tablename__ = "email_templates"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # reminder | warning | final | request | thanks | custom
+    kind: Mapped[str] = mapped_column(String, nullable=False, default="custom")
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow, server_default=func.now()
+    )
+
+
+class SentEmail(Base):
+    """One row per recipient of a manual compliance e-mail (a batch shares batch_id).
+    subject and body are the final, rendered text. Rows are written when the batch
+    is queued (status "queued") and updated as each message is handled:
+    queued -> sent | failed | skipped."""
+
+    __tablename__ = "sent_emails"
+    __table_args__ = (
+        Index("ix_sent_emails_batch", "batch_id"),
+        Index("ix_sent_emails_recipient", "recipient_email", "created_at"),
+        Index("ix_sent_emails_sender", "sent_by", "created_at"),
+        Index("ix_sent_emails_obligation", "obligation_id"),
+        Index("ix_sent_emails_compliance", "compliance_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    batch_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    sent_by: Mapped[str] = mapped_column(String, nullable=False)
+    recipient_email: Mapped[str] = mapped_column(String, nullable=False)
+    recipient_name: Mapped[str] = mapped_column(String, nullable=False, default="")
+    template_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("email_templates.id", ondelete="SET NULL"))
+    template_name: Mapped[str] = mapped_column(String, nullable=False, default="")
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    obligation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("obligations.id", ondelete="SET NULL"))
+    compliance_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("compliances.id", ondelete="SET NULL"))
+    # kind, link, cc, options and where the recipients came from (team / department / filters)
+    context: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="queued")
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created()

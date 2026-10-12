@@ -53,7 +53,7 @@ export function AppLayout() {
 
   useEffect(() => {
     const { page } = locate(pathname);
-    document.title = page ? `${page.label} · INT Comply` : "INT Comply";
+    document.title = page ? `${page.label} · Encop` : "Encop";
   }, [pathname]);
 
   const toggleCollapsed = useCallback(() => {
@@ -75,7 +75,7 @@ export function AppLayout() {
   if (!me) return null;
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="min-h-screen">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-3 focus:py-2 focus:rounded-md focus:bg-panel focus:border focus:border-line focus:shadow-md focus:text-sm focus:font-semibold"

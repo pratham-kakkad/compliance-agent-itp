@@ -49,6 +49,8 @@ import {
 } from "../../components/compliance/library/describe";
 import { useLookup } from "../../components/compliance/library/lookup";
 import { useCompliance } from "../../lib/ComplianceContext";
+import { useCanEmail } from "../../lib/emailTemplates";
+import { EmailButton } from "../../components/compliance/email/EmailButton";
 import { useApi } from "../../lib/useApi";
 import { fmtDateTime } from "../../lib/format";
 import {
@@ -413,9 +415,28 @@ function ProgressPanel({ def }: { def: ComplianceDef }) {
 
 function People({ def, q }: { def: ComplianceDef; q: ReturnType<typeof useApi<Page<Obligation>>> }) {
   const navigate = useNavigate();
+  const canEmail = useCanEmail();
   const [status, setStatus] = useState<"" | ObligationStatus>("");
   const [search, setSearch] = useState("");
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const items = q.data?.items ?? [];
+
+  // People who can be e-mailed about this compliance: not informational-only, not cancelled.
+  const mailable = useMemo(() => items.filter((o) => o.user && o.participation !== "informational" && o.status !== "cancelled"), [items]);
+  const togglePick = (email: string) =>
+    setPicked((s) => {
+      const n = new Set(s);
+      if (n.has(email)) n.delete(email);
+      else n.add(email);
+      return n;
+    });
+  const quick = [
+    { label: "All overdue", test: (o: Obligation) => o.overdue },
+    { label: "All not started", test: (o: Obligation) => o.status === "not_started" },
+    { label: "All rejected", test: (o: Obligation) => o.status === "rejected" },
+  ].map((r) => ({ ...r, emails: mailable.filter(r.test).map((o) => o.user!.email) }));
+  const pickedRows = mailable.filter((o) => picked.has(o.user!.email));
+  const allPickedOverdue = pickedRows.length > 0 && pickedRows.every((o) => o.overdue);
 
   const rows = useMemo(() => {
     const s = search.trim().toLowerCase();
@@ -423,6 +444,41 @@ function People({ def, q }: { def: ComplianceDef; q: ReturnType<typeof useApi<Pa
   }, [items, status, search]);
 
   const columns: Column<Obligation>[] = [
+    ...(canEmail
+      ? [
+          {
+            key: "pick",
+            header: (
+              <input
+                type="checkbox"
+                aria-label="Select everyone shown"
+                checked={rows.length > 0 && rows.filter((o) => mailable.includes(o)).every((o) => picked.has(o.user!.email)) && rows.some((o) => mailable.includes(o))}
+                onChange={(e) =>
+                  setPicked((s) => {
+                    const n = new Set(s);
+                    for (const o of rows) if (mailable.includes(o)) (e.target.checked ? n.add(o.user!.email) : n.delete(o.user!.email));
+                    return n;
+                  })
+                }
+                className="w-4 h-4 accent-[var(--accent)] align-middle"
+              />
+            ),
+            width: "44px",
+            cell: (o: Obligation) =>
+              mailable.includes(o) ? (
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${o.user?.name}`}
+                  checked={picked.has(o.user!.email)}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  onChange={() => togglePick(o.user!.email)}
+                  className="w-4 h-4 accent-[var(--accent)] align-middle"
+                />
+              ) : null,
+          } as Column<Obligation>,
+        ]
+      : []),
     { key: "person", header: "Person", sortValue: (o) => o.user?.name.toLowerCase(), cell: (o) => <PersonCell person={o.user} showTitle /> },
     { key: "part", header: "Part", hideBelow: "sm", sortValue: (o) => o.participation, cell: (o) => <ParticipationLabel participation={o.participation} /> },
     { key: "status", header: "Status", sortValue: (o) => o.status, cell: (o) => <ObligationStatusLabel o={o} /> },
@@ -477,6 +533,38 @@ function People({ def, q }: { def: ComplianceDef; q: ReturnType<typeof useApi<Pa
           </span>
         )}
       </div>
+      {canEmail && mailable.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 mb-3" role="group" aria-label="E-mail the people on this compliance">
+          <span className="text-[13px] text-ink2">Select:</span>
+          {quick.map((r) => (
+            <Button key={r.label} size="sm" disabled={r.emails.length === 0} onClick={() => setPicked(new Set(r.emails))}>
+              {r.label} <span className="tabular text-ink3">{r.emails.length}</span>
+            </Button>
+          ))}
+          {picked.size > 0 && (
+            <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>
+              Clear
+            </Button>
+          )}
+          <span className="ml-auto flex items-center gap-2">
+            <span className="text-[13px] text-ink2 tabular" aria-live="polite">
+              {picked.size} selected
+            </span>
+            <EmailButton
+              label={picked.size > 0 ? `Email ${picked.size}` : "Email selected"}
+              variant="primary"
+              disabled={picked.size === 0}
+              onDone={() => setPicked(new Set())}
+              target={() => ({
+                recipients: { compliance_id: def.id, status: "all", only: Array.from(picked) },
+                heading: `Email ${pickedRows.length === 1 ? pickedRows[0].user!.name : `${pickedRows.length} people`}`,
+                subtitle: `About ${def.name}. Replies go to you.`,
+                defaultKind: allPickedOverdue ? "warning" : "reminder",
+              })}
+            />
+          </span>
+        </div>
+      )}
       <Card padding="none" className="overflow-hidden">
         <DataTable
           columns={columns}

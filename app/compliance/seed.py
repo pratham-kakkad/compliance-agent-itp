@@ -48,6 +48,16 @@ def seed_system_data(db: Session) -> None:
         )
     db.commit()
 
+    # The built-in e-mail templates. If the migration hasn't been applied yet the table is missing: skip, don't fail start-up.
+    from sqlalchemy.exc import ProgrammingError
+
+    from app.compliance.messaging import seed_email_templates
+
+    try:
+        seed_email_templates(db)
+    except ProgrammingError:
+        db.rollback()
+
 
 def seed_demo(db: Session) -> None:
     seed_system_data(db)

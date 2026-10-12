@@ -7,11 +7,11 @@ import { Tooltip } from "./Tooltip";
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "outline";
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: "bg-accent-emphasis text-white border border-transparent hover:bg-accent-emphasis-hover shadow-xs",
-  secondary: "bg-panel2 text-ink border border-line hover:bg-panel3 hover:border-line-strong shadow-xs",
-  outline: "bg-transparent text-ink border border-line hover:bg-panel2",
+  primary: "btn-primary text-white border border-transparent",
+  secondary: "glass text-ink hover:brightness-[1.04] hover:border-line-strong",
+  outline: "bg-transparent text-ink border border-line hover:bg-[var(--glass)]",
   ghost: "bg-transparent text-ink border border-transparent hover:bg-panel2",
-  danger: "bg-panel2 text-crit border border-line hover:bg-crit-bg hover:border-crit",
+  danger: "glass text-crit hover:bg-crit-bg hover:border-crit",
 };
 
 const SIZES = {

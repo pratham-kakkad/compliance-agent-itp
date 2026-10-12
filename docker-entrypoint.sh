@@ -5,7 +5,11 @@ python -m alembic upgrade head
 
 if [ "${SEED_DEMO_DATA:-true}" = "true" ]; then
   python scripts/seed_demo_data.py
-  python scripts/seed_demo_attendance.py
+  # The attendance demo punches have their own switch, so a real punch-log import
+  # can stand on its own while the Meetings and Compliance demo data stays.
+  if [ "${SEED_DEMO_ATTENDANCE:-true}" = "true" ]; then
+    python scripts/seed_demo_attendance.py
+  fi
   python scripts/seed_demo_compliance.py
 fi
 

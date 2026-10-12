@@ -1,4 +1,4 @@
-"""The INT Comply assistant: a LangChain tool-calling loop.
+"""The Encop assistant: a LangChain tool-calling loop.
 
 Mostly about biometric attendance (app/chat/attendance_tools.py: exact
 SQL-backed tools + semantic search over embedded attendance records), plus
@@ -72,7 +72,7 @@ def truncate(text: str, limit: int) -> str:
 def system_prompt(viewer: OrgUser, today: date, timezone_name: str = "UTC") -> str:
     today_text = f"{today:%A} {today.day} {today:%B %Y} ({today.isoformat()}, {today:%d-%m-%Y})"
     zone_text = f"{timezone_name} (UTC{utc_offset_label(timezone_name)})"
-    return f"""You are the INT Comply assistant. Your main job is answering questions about biometric attendance: punch data imported from the office biometric device. You can also answer questions about Teams meeting attendance with the meeting tools.
+    return f"""You are the Encop assistant. Your main job is answering questions about biometric attendance: punch data imported from the office biometric device. You can also answer questions about Teams meeting attendance with the meeting tools.
 
 Today is {today_text} in the organization's time zone, {zone_text}. All dates and times in the tool results and in your answers are in that time zone: attendance days are calendar days there and punch times are local times there. Say so if the user asks which time zone is used. Turn relative dates such as "today", "yesterday", "last week" or "this month" into explicit dates before calling tools (weeks start on Monday). You are talking to {viewer.name} ({viewer.email}).
 

@@ -4,16 +4,17 @@ admins use day to day. Administration (users, roles, audit) is in admin_api.py.
 Every handler asks `Ctx` first (permission, then row-level scope) and only then
 calls the engine, which has no access rules of its own."""
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.compliance import audit, catalog, engine, evidence, reports
+from app.compliance.listing import as_list, day_bounds, priority_rank
 from app.compliance.models import (
     Compliance,
     ComplianceType,
@@ -260,11 +261,30 @@ def lookup(db: Session = Depends(get_db), ctx: Ctx = Depends(get_ctx)):
 # ------------------------------------------------------------- definitions
 
 
+def _check_priorities(values: list[str]) -> list[str]:
+    bad = [v for v in values if v not in catalog.PRIORITIES]
+    if bad:
+        raise HTTPException(status_code=422, detail=f"Unknown priority: {', '.join(bad)}")
+    return values
+
+
 @router.get("/definitions")
 def list_definitions(
-    status: str | None = None,
+    # Every filter is optional and they are ANDed. List filters take repeated or comma-separated values ("any of").
+    status: list[str] | None = Query(default=None),
     q: str | None = None,
-    category: str | None = None,
+    category: list[str] | None = Query(default=None),
+    priority: list[str] | None = Query(default=None),
+    type_key: list[str] | None = Query(default=None),
+    owner: list[str] | None = Query(default=None, description="Creator's email"),
+    due_from: date | None = Query(default=None, description="Deadline on or after this day (organization time zone)"),
+    due_to: date | None = Query(default=None, description="Deadline on or before this day"),
+    overdue: bool = Query(default=False, description="Active (published/paused), past the deadline and not yet satisfied"),
+    has_review: bool | None = Query(default=None, description="true: needs a reviewer; false: no review step"),
+    progress_min: int | None = Query(default=None, ge=0, le=100),
+    progress_max: int | None = Query(default=None, ge=0, le=100),
+    sort: str | None = Query(default=None, pattern="^(name|status|priority|due|progress|owner|created)$"),
+    dir: str = Query(default="asc", pattern="^(asc|desc)$"),
     limit: int = Query(100, le=500),
     offset: int = 0,
     ctx: Ctx = Depends(get_ctx),
@@ -272,15 +292,71 @@ def list_definitions(
     ctx.require("compliance", "view")
     db = ctx.db
     cond = [ctx.compliance_clause("view")]
-    if status:
-        cond.append(Compliance.status == status)
-    if category:
-        cond.append(Compliance.category == category)
+    if statuses := as_list(status):
+        cond.append(Compliance.status.in_(statuses))
+    if categories := as_list(category):
+        cond.append(Compliance.category.in_(categories))
+    if priorities := _check_priorities(as_list(priority)):
+        cond.append(Compliance.priority.in_(priorities))
+    if types := as_list(type_key):
+        cond.append(Compliance.type_key.in_(types))
+    if owners := as_list(owner):
+        cond.append(Compliance.created_by.in_(owners))
+    lo, hi = day_bounds(db, due_from, due_to)
+    if lo is not None:
+        cond.append(Compliance.due_at >= lo)
+    if hi is not None:
+        cond.append(Compliance.due_at < hi)
+    if has_review is not None:
+        cond.append(Compliance.review_mode != "none" if has_review else Compliance.review_mode == "none")
+    if overdue:
+        cond += [Compliance.status.in_(("published", "paused")), Compliance.due_at.is_not(None), Compliance.due_at < engine.now()]
     if q:
         like = f"%{q.strip()}%"
         cond.append(or_(Compliance.name.ilike(like), Compliance.description.ilike(like)))
-    total = db.scalar(select(func.count()).select_from(Compliance).where(*cond))
-    rows = list(db.scalars(select(Compliance).where(*cond).order_by(Compliance.created_at.desc()).limit(limit).offset(offset)))
+
+    desc = dir == "desc"
+
+    def order_by():
+        """The requested order, then newest first so equal rows stay stable."""
+        tail = [Compliance.created_at.desc(), Compliance.id]
+        if sort is None or sort == "progress":
+            return tail
+        col = {
+            "name": func.lower(Compliance.name),
+            "status": case({s: i for i, s in enumerate(catalog.DEFINITION_STATUSES)}, value=Compliance.status, else_=99),
+            "priority": priority_rank(Compliance.priority, catalog.PRIORITIES),
+            "due": Compliance.due_at,
+            "created": Compliance.created_at,
+            "owner": func.lower(Compliance.created_by),
+        }[sort]
+        first = col.desc() if desc else col.asc()
+        return [first.nulls_last() if sort == "due" else first, *tail]
+
+    # Progress is computed per compliance (not a column), so these need every matching row.
+    needs_rollup = bool(overdue or progress_min is not None or progress_max is not None or sort == "progress")
+    if not needs_rollup:
+        total = db.scalar(select(func.count()).select_from(Compliance).where(*cond))
+        rows = list(db.scalars(select(Compliance).where(*cond).order_by(*order_by()).limit(limit).offset(offset)))
+    else:
+        base = list(db.scalars(select(Compliance).where(*cond).order_by(*order_by()).limit(5000)))
+        kept: list[tuple[Compliance, dict]] = []
+        for c in base:
+            prog = engine.rollup(db, c)
+            if progress_min is not None and prog["percent"] < progress_min:
+                continue
+            if progress_max is not None and prog["percent"] > progress_max:
+                continue
+            if overdue and prog["satisfied"]:
+                continue
+            kept.append((c, prog))
+        if sort == "progress":
+            have = [x for x in kept if x[1]["required_total"]]
+            none = [x for x in kept if not x[1]["required_total"]]
+            have.sort(key=lambda x: x[1]["percent"], reverse=desc)
+            kept = have + none
+        total = len(kept)
+        rows = [c for c, _ in kept[offset : offset + limit]]
     d = Directory(db, {r.created_by for r in rows} | {r.reviewer_email for r in rows if r.reviewer_email})
     return {"total": total, "items": [compliance_dict(db, c, ctx, d=d) for c in rows]}
 
@@ -290,6 +366,16 @@ def categories(ctx: Ctx = Depends(get_ctx)):
     ctx.require("compliance", "view")
     rows = ctx.db.scalars(select(Compliance.category).where(ctx.compliance_clause("view")).distinct().order_by(Compliance.category))
     return list(rows)
+
+
+@router.get("/owners")
+def owners(ctx: Ctx = Depends(get_ctx)):
+    """Who created the compliances this viewer can see (the library's "owner" filter choices)."""
+    ctx.require("compliance", "view")
+    emails = set(ctx.db.scalars(select(Compliance.created_by).where(ctx.compliance_clause("view")).distinct()))
+    d = Directory(ctx.db, emails)
+    people = [d.person(e) or {"email": e, "name": e} for e in emails]
+    return sorted(({"email": p["email"], "name": p["name"]} for p in people), key=lambda p: p["name"].lower())
 
 
 @router.post("/definitions", status_code=201)
@@ -400,37 +486,77 @@ def definition_action(cid: str, action: str, ctx: Ctx = Depends(get_ctx)):
 # ------------------------------------------------------------- obligations
 
 
-def _list_obligations(ctx: Ctx, mine: bool, status, compliance_id, user, overdue, q, limit, offset, resource="submission"):
+def _list_obligations(
+    ctx: Ctx,
+    mine: bool,
+    status,
+    compliance_id,
+    user,
+    overdue,
+    q,
+    limit,
+    offset,
+    resource="submission",
+    *,
+    priority=None,
+    category=None,
+    participation=None,
+    due_from=None,
+    due_to=None,
+    sort=None,
+    direction="asc",
+):
     ctx.require("submission", "view")
     db = ctx.db
     cond = [ctx.obligation_clause(resource, "view")]
     if mine:
         cond.append(Obligation.user_email == ctx.email)
-    if status:
-        cond.append(Obligation.status.in_([s for s in status.split(",") if s]))
+    if statuses := as_list(status):
+        cond.append(Obligation.status.in_(statuses))
     if compliance_id:
         cond.append(Obligation.compliance_id == get_uuid(compliance_id, "compliance"))
     if user:
         cond.append(Obligation.user_email == user)
     if overdue:
         cond += [Obligation.status.in_(catalog.OPEN), Obligation.due_at.is_not(None), Obligation.due_at < engine.now()]
+    if participations := as_list(participation):
+        bad = [v for v in participations if v not in catalog.PARTICIPATION]
+        if bad:
+            raise HTTPException(status_code=422, detail=f"Unknown participation: {', '.join(bad)}")
+        cond.append(Obligation.participation.in_(participations))
+    lo, hi = day_bounds(db, due_from, due_to)
+    if lo is not None:
+        cond.append(Obligation.due_at >= lo)
+    if hi is not None:
+        cond.append(Obligation.due_at < hi)
     query = select(Obligation).join(Compliance, Compliance.id == Obligation.compliance_id).where(*cond)
+    if priorities := _check_priorities(as_list(priority)):
+        query = query.where(Compliance.priority.in_(priorities))
+    if categories := as_list(category):
+        query = query.where(Compliance.category.in_(categories))
     if q:
         like = f"%{q.strip()}%"
         query = query.where(or_(Compliance.name.ilike(like), Obligation.user_email.ilike(like)))
     total = db.scalar(select(func.count()).select_from(query.subquery()))
-    # Open items first, nearest deadline first.
-    rows = list(
-        db.scalars(
-            query.order_by(
-                Obligation.status.in_(catalog.TERMINAL).asc(),
-                Obligation.due_at.asc().nulls_last(),
-                Obligation.created_at.desc(),
-            )
-            .limit(limit)
-            .offset(offset)
-        )
-    )
+    # Default: open items first, nearest deadline first. An explicit sort goes first and the default order breaks ties.
+    default_order = [
+        Obligation.status.in_(catalog.TERMINAL).asc(),
+        Obligation.due_at.asc().nulls_last(),
+        Obligation.created_at.desc(),
+    ]
+    order = default_order
+    if sort:
+        col = {
+            "name": func.lower(Compliance.name),
+            "status": case({s: i for i, s in enumerate(catalog.OBLIGATION_STATUSES)}, value=Obligation.status, else_=99),
+            "priority": priority_rank(Compliance.priority, catalog.PRIORITIES),
+            "due": Obligation.due_at,
+            "created": Obligation.created_at,
+            "person": func.lower(Obligation.user_email),
+        }[sort]
+        first = col.desc() if direction == "desc" else col.asc()
+        order = [first.nulls_last() if sort == "due" else first, *default_order]
+    rows = list(db.scalars(query.order_by(*order, Obligation.id).limit(limit).offset(offset)))
     d = Directory(db, {o.user_email for o in rows})
     return {"total": total, "items": [obligation_dict(db, o, ctx, d) for o in rows]}
 
@@ -438,16 +564,40 @@ def _list_obligations(ctx: Ctx, mine: bool, status, compliance_id, user, overdue
 @router.get("/obligations")
 def list_obligations(
     mine: bool = False,
-    status: str | None = None,
+    status: list[str] | None = Query(default=None),
     compliance_id: str | None = None,
     user: str | None = None,
     overdue: bool = False,
     q: str | None = None,
+    priority: list[str] | None = Query(default=None, description="Compliance priority, any of"),
+    category: list[str] | None = Query(default=None),
+    participation: list[str] | None = Query(default=None),
+    due_from: date | None = Query(default=None, description="Deadline on or after this day (organization time zone)"),
+    due_to: date | None = Query(default=None, description="Deadline on or before this day"),
+    sort: str | None = Query(default=None, pattern="^(name|status|priority|due|created|person)$"),
+    dir: str = Query(default="asc", pattern="^(asc|desc)$"),
     limit: int = Query(100, le=500),
     offset: int = 0,
     ctx: Ctx = Depends(get_ctx),
 ):
-    return _list_obligations(ctx, mine, status, compliance_id, user, overdue, q, limit, offset)
+    return _list_obligations(
+        ctx,
+        mine,
+        status,
+        compliance_id,
+        user,
+        overdue,
+        q,
+        limit,
+        offset,
+        priority=priority,
+        category=category,
+        participation=participation,
+        due_from=due_from,
+        due_to=due_to,
+        sort=sort,
+        direction=dir,
+    )
 
 
 @router.get("/obligations/{oid}")

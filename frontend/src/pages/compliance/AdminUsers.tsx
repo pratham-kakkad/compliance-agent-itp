@@ -1,17 +1,21 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Info, UserPlus, Users } from "lucide-react";
+import { Info, KeyRound, MailWarning, MoreHorizontal, Send, UserCheck, UserPlus, UserX, Users } from "lucide-react";
 import { useApi } from "../../lib/useApi";
 import { api } from "../../lib/api";
+import { useAuth } from "../../auth/AuthContext";
 import { useCompliance } from "../../lib/ComplianceContext";
 import { useDebouncedValue } from "../../lib/useDebouncedValue";
 import type { AdminRole, AdminUser } from "../../lib/compliance";
-import { Avatar, Banner, Button, Card, DataTable, EmptyState, ErrorState, Label, PageHeader, SearchInput, SegmentedControl, Select, Skeleton, TextInput } from "../../components/ui";
+import { Avatar, Banner, Button, Card, DataTable, EmptyState, ErrorState, IconButton, Label, Menu, PageHeader, SearchInput, SegmentedControl, Select, Skeleton, TextInput } from "../../components/ui";
 import type { Column } from "../../components/ui";
 import { useOverlay } from "../../components/Modal";
 import { Field, errText } from "../../components/compliance/common";
-import { NoAccess, PersonSelect, RoleChecklist, useLookup } from "../../components/compliance/admin/parts";
+import { CheckRow, NoAccess, PersonSelect, RoleChecklist, useConfirm, useLookup } from "../../components/compliance/admin/parts";
+import { InviteLinkBox, StatusLabel, lastSignIn, useLinkActions } from "../../components/compliance/admin/InviteLink";
+import type { LinkResult } from "../../components/compliance/admin/InviteLink";
+import { fmtDateTime } from "../../lib/format";
 
 type UsersResponse = { total: number; items: AdminUser[] };
 
@@ -32,8 +36,11 @@ function AddUserDialog({ onCreated }: { onCreated: () => void }) {
   const [manager, setManager] = useState("");
   const [department, setDepartment] = useState("");
   const [roleKeys, setRoleKeys] = useState<string[]>([]);
+  const [sendInvite, setSendInvite] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ name: string; email: string; result: LinkResult | null } | null>(null);
+  const { config } = useAuth();
 
   const explicitRoles = useMemo(() => (roles.data ?? []).filter((r) => r.auto_assign === null), [roles.data]);
   const lockedKeys = useMemo(() => (me?.is_super ? [] : explicitRoles.filter((r) => r.is_super).map((r) => r.key)), [me, explicitRoles]);
@@ -46,31 +53,55 @@ function AddUserDialog({ onCreated }: { onCreated: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      await api.post("/compliance/admin/users", {
+      const res = await api.post<{ email: string } & Partial<LinkResult>>("/compliance/admin/users", {
         email: email.trim().toLowerCase(),
         name: name.trim(),
         title: title.trim(),
         manager_email: manager || null,
         department_id: department || null,
         role_keys: canRoles ? roleKeys : [],
+        send_invite: sendInvite,
       });
-      toast.success(`${name.trim()} added`, { description: "They can sign in with their Microsoft work account." });
       onCreated();
-      close();
+      if (res.invite_url) {
+        // Show the link (and whether it was e-mailed) before closing.
+        setCreated({ name: name.trim(), email: res.email, result: res as LinkResult });
+        setBusy(false);
+      } else {
+        toast.success(`${name.trim()} added`, { description: "No invite was created. Use the row menu to send one later." });
+        close();
+      }
     } catch (err) {
       setError(errText(err));
       setBusy(false);
     }
   }
 
+  if (created?.result) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="pr-6">
+          <h2 className="text-lg font-semibold text-ink">{created.name} was added</h2>
+          <p className="text-sm text-ink2 mt-1">{created.email}</p>
+        </div>
+        <InviteLinkBox name={created.name} email={created.email} result={created.result} />
+        <div className="flex justify-end">
+          <Button variant="primary" onClick={close}>
+            Done
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-4">
       <div className="pr-6">
         <h2 className="text-lg font-semibold text-ink">Add a user</h2>
-        <p className="text-sm text-ink2 mt-1">Pre-provision someone so they have the right access the first time they sign in.</p>
+        <p className="text-sm text-ink2 mt-1">They sign in with their e-mail and a password they choose from an invite link. Roles, manager and department are ready from their first sign-in.</p>
       </div>
 
-      <Field label="Work e-mail" required hint="Must match the Microsoft account they sign in with.">
+      <Field label="Work e-mail" required hint="Their sign-in name. It also matches their Microsoft account if you switch that on later.">
         {(id) => <TextInput id={id} type="email" autoFocus autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />}
       </Field>
       <div className="grid sm:grid-cols-2 gap-4">
@@ -111,6 +142,17 @@ function AddUserDialog({ onCreated }: { onCreated: () => void }) {
         </div>
       )}
 
+      <CheckRow
+        checked={sendInvite}
+        onChange={setSendInvite}
+        title="Send an invite"
+        description={
+          config?.smtp_configured
+            ? "E-mails them a link to set their password. You'll also get the link to copy."
+            : "E-mail isn't set up on this server, so nothing is mailed: you'll get a link to copy and send them yourself."
+        }
+      />
+
       {canRoles && (
         <fieldset className="flex flex-col gap-2">
           <legend className="text-[13px] font-semibold text-ink mb-1">Roles</legend>
@@ -145,9 +187,12 @@ function AddUserDialog({ onCreated }: { onCreated: () => void }) {
 // -------------------------------------------------------------------- page
 
 export function AdminUsers() {
-  const { can, ready } = useCompliance();
+  const { can, ready, me: access } = useCompliance();
+  const { config } = useAuth();
   const navigate = useNavigate();
   const { openModal } = useOverlay();
+  const confirm = useConfirm();
+  const links = useLinkActions();
   const [q, setQ] = useState("");
   const dq = useDebouncedValue(q.trim(), 250);
   const [show, setShow] = useState<"active" | "all">("active");
@@ -161,6 +206,41 @@ export function AdminUsers() {
   const { data, error, initialLoading, loading, reload } = useApi<UsersResponse>(allowed ? path : null);
 
   const names = useMemo(() => new Map((data?.items ?? []).map((u) => [u.email, u.name])), [data]);
+  const selfEmail = (access?.user?.email ?? "").toLowerCase();
+
+  function toggleActive(u: AdminUser) {
+    if (u.is_active) {
+      confirm({
+        title: `Deactivate ${u.name}?`,
+        description: (
+          <>
+            <p>They will no longer be able to sign in or appear in pickers.</p>
+            <p>
+              <strong className="text-ink">Their open compliance items will be cancelled.</strong> Completed items are kept.
+            </p>
+          </>
+        ),
+        confirm: "Deactivate",
+        onConfirm: async () => {
+          await api.patch(userPath(u.email), { is_active: false });
+          toast.success(`${u.name} deactivated`);
+          reload();
+        },
+      });
+    } else {
+      confirm({
+        title: `Reactivate ${u.name}?`,
+        description: <p>They will be able to sign in again.</p>,
+        confirm: "Reactivate",
+        tone: "primary",
+        onConfirm: async () => {
+          await api.patch(userPath(u.email), { is_active: true });
+          toast.success(`${u.name} reactivated`);
+          reload();
+        },
+      });
+    }
+  }
 
   const columns: Column<AdminUser>[] = [
     {
@@ -207,13 +287,64 @@ export function AdminUsers() {
     {
       key: "status",
       header: "Status",
-      sortValue: (u) => (u.is_active ? 0 : 1),
+      sortValue: (u) => ({ active: 0, invited: 1, disabled: 2 })[u.status ?? (u.is_active ? "active" : "disabled")],
       cell: (u) => (
         <div className="flex flex-wrap items-center gap-1">
-          {u.is_active ? <Label tone="good" size="sm" dot>Active</Label> : <Label tone="neutral" size="sm" dot>Deactivated</Label>}
+          <StatusLabel user={u} />
           {u.is_demo && <Label tone="accent" variant="outline" size="sm">Demo</Label>}
         </div>
       ),
+    },
+    {
+      key: "last_login",
+      header: "Last sign-in",
+      hideBelow: "md",
+      sortFirst: "desc",
+      sortValue: (u) => u.last_login_at ?? "",
+      cell: (u) => (u.last_login_at ? <span className="text-[13px] text-ink2 whitespace-nowrap">{fmtDateTime(u.last_login_at)}</span> : <span className="text-[13px] text-ink3">{u.status === "invited" ? "Not yet" : "Never"}</span>),
+    },
+    {
+      key: "actions",
+      header: <span className="sr-only">Actions</span>,
+      width: "48px",
+      align: "right",
+      cell: (u) => {
+        const canToggle = can("user", "delete") && !(u.email.toLowerCase() === selfEmail && u.is_active);
+        const canInvite = links.canInvite(u);
+        const canReset = links.canReset(u) && !canInvite;
+        if (!canInvite && !canReset && !canToggle) return null;
+        return (
+          // The row opens the person on click; the menu must not.
+          <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+            <Menu.Root>
+              <Menu.Trigger asChild>
+                <IconButton icon={MoreHorizontal} label={`Actions for ${u.name}`} tooltip={false} size="sm" />
+              </Menu.Trigger>
+              <Menu.Content className="w-52">
+                {canInvite && (
+                  <Menu.Item onSelect={() => void links.resendInvite(u)}>
+                    <Send size={16} className="text-ink2" /> Resend invite
+                  </Menu.Item>
+                )}
+                {canReset && (
+                  <Menu.Item onSelect={() => void links.sendReset(u)}>
+                    <KeyRound size={16} className="text-ink2" /> Send reset link
+                  </Menu.Item>
+                )}
+                {canToggle && (
+                  <>
+                    {(canInvite || canReset) && <Menu.Separator />}
+                    <Menu.Item danger={u.is_active} onSelect={() => toggleActive(u)}>
+                      {u.is_active ? <UserX size={16} /> : <UserCheck size={16} className="text-ink2" />}
+                      {u.is_active ? "Deactivate" : "Reactivate"}
+                    </Menu.Item>
+                  </>
+                )}
+              </Menu.Content>
+            </Menu.Root>
+          </div>
+        );
+      },
     },
   ];
 
@@ -245,10 +376,23 @@ export function AdminUsers() {
         }
       />
 
-      <Banner icon={Info} className="mb-4">
-        People sign in with their Microsoft work account (or the demo login); there are no local passwords. Adding a user pre-provisions them: their roles, manager and department are
-        ready the first time they sign in.
-      </Banner>
+      {config?.smtp_configured === false ? (
+        <Banner tone="warn" icon={MailWarning} title="E-mail isn't set up yet" className="mb-4">
+          Invites and reset links can't be mailed. When you add someone you'll get a link to copy and send them yourself.
+          {can("settings", "configure") && (
+            <>
+              {" "}
+              <Link to="/settings" className="text-accent underline">
+                Set up e-mail
+              </Link>
+            </>
+          )}
+        </Banner>
+      ) : (
+        <Banner icon={Info} className="mb-4">
+          Adding a person e-mails them an invite to choose a password. They can also sign in with Microsoft if that's switched on: it matches by e-mail address.
+        </Banner>
+      )}
 
       <Card padding="none" className="overflow-hidden">
         <div className="flex flex-wrap items-center gap-3 p-3 border-b border-line">

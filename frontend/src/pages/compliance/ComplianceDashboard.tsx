@@ -1,122 +1,40 @@
-import { useId, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import {
-  AlertTriangle,
-  ArrowRight,
-  CheckCircle2,
-  Clock3,
-  FileSearch,
-  Gauge,
-  RefreshCw,
-  ShieldAlert,
-  ShieldCheck,
-  Siren,
-  Users2,
-} from "lucide-react";
-import { useApi } from "../../lib/useApi";
-import { useCssVars } from "../../lib/useCssVar";
-import { fmtDay, fmtDateTime } from "../../lib/format";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { AlertTriangle, CalendarClock, CheckCircle2, FileSearch, Hourglass, ListChecks, ShieldAlert, ShieldCheck, Siren, Timer } from "lucide-react";
 import { useCompliance } from "../../lib/ComplianceContext";
-import type { Breakdown, DashboardData } from "../../lib/compliance";
-import { Avatar, Button, Card, CardHeader, EmptyState, ErrorState, IconButton, PageHeader, ProgressBar, SegmentedControl, Skeleton, StatCard, StatGridSkeleton } from "../../components/ui";
+import { fmtDateTime } from "../../lib/format";
+import type { Priority } from "../../lib/compliance";
+import type { ComplianceDashboardData, ComplianceGroupRow } from "../../lib/dashboards";
+import { Avatar, Button, Card, CardHeader, EmptyState, Label, PageHeader, SegmentedControl } from "../../components/ui";
 import { BlockDeck } from "../../components/orbit/BlockDeck";
 import type { DeckBlock } from "../../components/orbit/types";
-import { DueLabel, PersonCell } from "../../components/compliance/common";
+import { CountColumnChart } from "../../components/charts";
+import {
+  ActionList,
+  ActionRow,
+  AreaHeading,
+  DashboardHeader,
+  KpiCard,
+  KpiGrid,
+  KpiGridSkeleton,
+  PanelError,
+  RankedBars,
+  SeeAll,
+  StackedBar,
+  countTrendPoints,
+  panelOf,
+  useDashboard,
+  usePeriod,
+  type RankedRow,
+} from "../../components/dash";
+import { DueLabel, PriorityLabel } from "../../components/compliance/common";
+import type { Tone } from "../../lib/format";
 
-const pct = (n: number) => `${Math.round(n)}%`;
-const count = (n: number) => String(Math.round(n));
+const HUE = "violet" as const;
 
-function PanelSkeleton({ tall }: { tall?: boolean }) {
-  return (
-    <Card className="h-full">
-      <Skeleton className="h-4 w-40 mb-4" />
-      <Skeleton className={tall ? "h-[200px] w-full" : "h-[140px] w-full"} />
-    </Card>
-  );
-}
-
-function DailyTrend({ data }: { data: DashboardData["trend"] }) {
-  const c = useCssVars(["accent", "border-soft", "text-faint", "text-soft", "surface"]);
-  const gid = useId().replace(/:/g, "");
-  const total = data.reduce((a, d) => a + d.completed, 0);
-  if (total === 0) {
-    return <EmptyState icon={Gauge} title="No completions yet" description="Completed items will chart here, day by day, for the last 30 days." compact />;
-  }
-  return (
-    <ResponsiveContainer width="100%" height={220}>
-      <AreaChart data={data.map((d) => ({ day: fmtDay(d.date), completed: d.completed }))} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-        <defs>
-          <linearGradient id={`dt${gid}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={c.accent} stopOpacity={0.3} />
-            <stop offset="100%" stopColor={c.accent} stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid stroke={c["border-soft"]} vertical={false} />
-        <XAxis dataKey="day" tick={{ fill: c["text-faint"], fontSize: 11 }} tickLine={false} axisLine={false} interval={4} padding={{ left: 24, right: 12 }} />
-        <YAxis allowDecimals={false} tick={{ fill: c["text-faint"], fontSize: 11 }} tickLine={false} axisLine={false} width={40} />
-        <Tooltip
-          cursor={{ stroke: c["text-faint"], strokeDasharray: 3 }}
-          content={({ active, payload, label }) =>
-            active && payload?.length ? (
-              <div className="rounded-lg border border-line bg-panel shadow-md px-3 py-2 text-[13px]">
-                <div className="text-ink2 text-xs mb-0.5">{label}</div>
-                <span className="font-semibold text-ink tabular">{payload[0].value} completed</span>
-              </div>
-            ) : null
-          }
-        />
-        <Area type="monotone" dataKey="completed" stroke={c.accent} strokeWidth={2} fill={`url(#dt${gid})`} animationDuration={900} />
-      </AreaChart>
-    </ResponsiveContainer>
-  );
-}
-
-function GroupBars({ rows, empty }: { rows: Breakdown[]; empty: string }) {
-  if (!rows.length) return <EmptyState icon={Users2} title={empty} compact />;
-  return (
-    <ul className="flex flex-col gap-3.5">
-      {rows.map((r) => (
-        <li key={r.name}>
-          <div className="flex items-baseline justify-between gap-3 mb-1.5">
-            <span className="text-sm font-semibold text-ink truncate">{r.name}</span>
-            <span className="text-[13px] text-ink2 tabular whitespace-nowrap">
-              {r.completed}/{r.total} · <span className="font-semibold text-ink">{r.percent}%</span>
-              {r.overdue > 0 && <span className="text-crit font-semibold"> · {r.overdue} overdue</span>}
-            </span>
-          </div>
-          <ProgressBar value={r.percent} tone={r.percent >= 90 ? "good" : r.percent >= 60 ? "accent" : "warn"} />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function GroupsPanel({ data }: { data: DashboardData }) {
-  const [by, setBy] = useState<"department" | "team" | "category">("department");
-  const rows = by === "department" ? data.by_department : by === "team" ? data.by_team : data.by_category;
-  return (
-    <Card className="h-full">
-      <CardHeader
-        title="Where compliance stands"
-        description="Required items completed, by group"
-        actions={
-          <SegmentedControl
-            size="sm"
-            value={by}
-            onChange={setBy}
-            aria-label="Group by"
-            options={[
-              { value: "department", label: "Department" },
-              { value: "team", label: "Team" },
-              { value: "category", label: "Category" },
-            ]}
-          />
-        }
-      />
-      <GroupBars rows={rows} empty={`Nothing to show by ${by} yet`} />
-    </Card>
-  );
+function rateToneFor(rate: number | null, target: number): Tone {
+  if (rate == null) return "neutral";
+  return rate >= target ? "good" : rate >= target - 0.15 ? "warn" : "crit";
 }
 
 const ESCALATION_TEXT: Record<string, string> = {
@@ -129,187 +47,336 @@ const ESCALATION_TEXT: Record<string, string> = {
   flag_defaulter: "added to the defaulter list",
 };
 
-/** The dashboard's panels, as blocks for the grid / orbit ring. Each carries its own loading and error state. */
-function useBlocks(data: DashboardData | null, error: Error | null, reload: () => void, loading: boolean): DeckBlock[] {
-  const { can } = useCompliance();
-  const fail = error && !data;
-  const wait = !fail && (loading || !data) && !data;
-  const panel = (render: (d: DashboardData) => React.ReactNode, tall = true) =>
-    fail ? (
-      <Card className="h-full">
-        <ErrorState message={error!.message} onRetry={reload} />
-      </Card>
-    ) : wait || !data ? (
-      <PanelSkeleton tall={tall} />
-    ) : (
-      render(data)
-    );
+function BreakdownPanel({ d, days }: { d: ComplianceDashboardData; days: number }) {
+  const [by, setBy] = useState<"category" | "priority" | "department">("category");
+  const target = d.thresholds.target;
+  const source: ComplianceGroupRow[] = by === "category" ? d.by_category : by === "priority" ? d.by_priority : d.by_department;
+  const rows: RankedRow[] = source.map((g) => ({
+    key: g.name,
+    label: by === "priority" ? g.name.charAt(0).toUpperCase() + g.name.slice(1) : g.name,
+    value: g.rate,
+    tone: rateToneFor(g.rate, target),
+    delta: g.delta,
+    display: g.rate == null ? "no deadline" : undefined,
+    sub: (
+      <span>
+        {g.total ? `${g.completed} of ${g.total} due items completed` : `Nothing fell due in ${days} days`}
+        {g.overdue > 0 && <span className="text-crit font-medium"> {"·"} {g.overdue} overdue now</span>}
+      </span>
+    ),
+  }));
+  return (
+    <Card className="h-full">
+      <CardHeader
+        title="Where compliance stands"
+        description={`Completion rate of items that fell due in the last ${days} days, lowest first. The tick marks the ${Math.round(target * 100)}% target.`}
+        actions={
+          <SegmentedControl
+            size="sm"
+            aria-label="Group by"
+            value={by}
+            onChange={setBy}
+            options={[
+              { value: "category", label: "Category" },
+              { value: "priority", label: "Priority" },
+              { value: "department", label: "Department" },
+            ]}
+          />
+        }
+      />
+      <RankedBars rows={rows} target={target} dense empty={<EmptyState icon={ShieldCheck} title={`Nothing to show by ${by} yet`} description="Groups appear once required items with a deadline exist." compact />} />
+    </Card>
+  );
+}
 
-  const k = data?.kpis;
+function AgingPanel({ d }: { d: ComplianceDashboardData }) {
+  const navigate = useNavigate();
+  const a = d.aging;
+  const rows: RankedRow[] = d.overdue_by_compliance.slice(0, 5).map((g) => {
+    const max = Math.max(1, ...d.overdue_by_compliance.map((x) => x.overdue));
+    return {
+      key: g.compliance_id,
+      label: g.name,
+      value: g.overdue / max,
+      display: `${g.overdue} overdue`,
+      tone: g.oldest_days > 30 ? "crit" : g.oldest_days > 7 ? "warn" : "accent",
+      sub: `Oldest ${g.oldest_days} ${g.oldest_days === 1 ? "day" : "days"} late · ${g.priority} priority`,
+      onClick: () => navigate(`/compliance/library/${g.compliance_id}`),
+    };
+  });
+  return (
+    <Card className="h-full">
+      <CardHeader title="Overdue, by age" description="Open required items past their deadline: how late they are, and which compliances they belong to" />
+      {a.total === 0 ? (
+        <EmptyState icon={CheckCircle2} title="Nothing is overdue" description="Every open required item is still within its deadline." compact />
+      ) : (
+        <>
+          <StackedBar
+            segments={[
+              { key: "a", label: "1–7 days late", value: a.d1_7, color: "linear-gradient(90deg, var(--chart-4), #fb923c)" },
+              { key: "b", label: "8–30 days late", value: a.d8_30, color: "linear-gradient(90deg, #fb923c, #f43f5e)" },
+              { key: "c", label: "Over 30 days", value: a.d30_plus, color: "linear-gradient(90deg, #f43f5e, var(--crit))" },
+            ]}
+          />
+          <div className="mt-5 pt-4 border-t border-line-soft">
+            <div className="text-[12px] font-semibold uppercase tracking-wide text-ink3 mb-3">Compliances with the most overdue items</div>
+            <RankedBars rows={rows} dense />
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function ComingUpPanel({ d }: { d: ComplianceDashboardData }) {
+  const [tab, setTab] = useState<"soon" | "reviews" | "escalations">("soon");
+  return (
+    <Card className="h-full">
+      <CardHeader
+        title={tab === "soon" ? "Due in the next 7 days" : tab === "reviews" ? "Awaiting your review" : "Recent escalations"}
+        description={tab === "soon" ? "Open required items about to fall due, soonest first" : tab === "reviews" ? "Submissions you can approve or reject, oldest first" : "What the escalation rules did in this period"}
+        actions={
+          <SegmentedControl
+            size="sm"
+            aria-label="Coming up"
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: "soon", label: "Due soon" },
+              { value: "reviews", label: "Reviews" },
+              { value: "escalations", label: "Escalations" },
+            ]}
+          />
+        }
+      />
+      {tab === "soon" &&
+        (d.due_soon.length === 0 ? (
+          <EmptyState icon={CheckCircle2} title="Nothing falls due in the next 7 days" compact />
+        ) : (
+          <ActionList>
+            {d.due_soon.map((u) => (
+              <ActionRow
+                key={u.obligation_id}
+                leading={<Avatar name={u.user.name} size={28} />}
+                title={u.compliance}
+                sub={u.user.name}
+                right={<DueLabel iso={u.due_at} />}
+                to={`/compliance/obligations/${u.obligation_id}`}
+              />
+            ))}
+          </ActionList>
+        ))}
+      {tab === "reviews" &&
+        (d.kpis.review_queue.value == null ? (
+          <EmptyState icon={FileSearch} title="You are not a reviewer" description="Reviews you can decide on appear here." compact />
+        ) : d.review_items.length === 0 ? (
+          <EmptyState icon={CheckCircle2} title="Nothing is waiting for you" compact />
+        ) : (
+          <>
+            <ActionList>
+              {d.review_items.map((r) => (
+                <ActionRow
+                  key={r.obligation_id}
+                  leading={<Avatar name={r.user.name} size={28} />}
+                  title={r.compliance}
+                  sub={r.user.name}
+                  right={<span className={r.waiting_days > 7 ? "text-crit font-semibold" : r.waiting_days > 3 ? "text-warn font-semibold" : "text-ink2"}>waiting {r.waiting_days < 1 ? "<1" : Math.floor(r.waiting_days)} d</span>}
+                  to={`/compliance/obligations/${r.obligation_id}`}
+                />
+              ))}
+            </ActionList>
+            {d.kpis.review_queue.value! > d.review_items.length && <SeeAll to="/compliance/reviews">Open the queue ({d.kpis.review_queue.value})</SeeAll>}
+          </>
+        ))}
+      {tab === "escalations" &&
+        (d.escalations.length === 0 ? (
+          <EmptyState icon={Siren} title="No escalations in this period" description="Reminders and escalations are listed here as the rules fire." compact />
+        ) : (
+          <ActionList>
+            {d.escalations.map((e, i) => (
+              <ActionRow
+                key={`${e.obligation_id}-${e.fired_at}-${i}`}
+                title={
+                  <span>
+                    {e.user} <span className="text-ink3 font-normal">{"·"}</span> {e.compliance}
+                  </span>
+                }
+                sub={`${ESCALATION_TEXT[e.action] ?? e.action} · ${fmtDateTime(e.fired_at)}`}
+                to={`/compliance/obligations/${e.obligation_id}`}
+              />
+            ))}
+          </ActionList>
+        ))}
+    </Card>
+  );
+}
+
+function useBlocks(state: ReturnType<typeof useDashboard<ComplianceDashboardData>>, days: number): DeckBlock[] {
+  const navigate = useNavigate();
+  const { can } = useCompliance();
+  const d = state.data;
+  const failed = state.error && !d;
+  const kpiBlock = (render: (d: ComplianceDashboardData) => React.ReactNode) => (failed ? <PanelError message={state.error!.message} onRetry={state.reload} /> : !d ? <KpiGridSkeleton /> : render(d));
+
   return [
     {
       id: "kpis",
       title: "Compliance at a glance",
-      kicker: "Overview",
+      kicker: "Headline",
       span: 2,
-      node: fail ? (
-        <Card className="h-full">
-          <ErrorState message={error!.message} onRetry={reload} />
-        </Card>
-      ) : wait || !k ? (
-        <StatGridSkeleton count={6} />
-      ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-          <StatCard label="Compliance rate" icon={ShieldCheck} value={pct(k.compliance_percent)} tone={k.compliance_percent >= 90 ? "good" : k.compliance_percent >= 60 ? "warn" : "crit"} animateValue={k.compliance_percent} formatValue={pct} foot={`${k.completed} of ${k.obligations} required items done`} />
-          <StatCard label="Active compliances" icon={Gauge} value={String(k.active_compliances)} animateValue={k.active_compliances} formatValue={count} foot={`${k.total_compliances} in total`} />
-          <StatCard label="Pending" icon={Clock3} value={String(k.pending)} animateValue={k.pending} formatValue={count} foot="Not yet submitted" />
-          <StatCard label="In review" icon={FileSearch} value={String(k.in_review)} tone={k.in_review ? "accent" : "neutral"} animateValue={k.in_review} formatValue={count} foot="Waiting for a reviewer" />
-          <StatCard label="Overdue" icon={AlertTriangle} value={String(k.overdue)} tone={k.overdue ? "crit" : "good"} animateValue={k.overdue} formatValue={count} foot="Past the deadline" />
-          <StatCard label="Non-compliant people" icon={ShieldAlert} value={String(k.non_compliant_users)} tone={k.non_compliant_users ? "crit" : "good"} animateValue={k.non_compliant_users} formatValue={count} foot={`${k.non_compliant} open items marked`} />
-        </div>
+      gridHeading: <AreaHeading title="Headline numbers" description="Are required items getting done, and on time?" icon={ShieldCheck} hue={HUE} />,
+      node: kpiBlock((d) => (
+        <KpiGrid>
+          <KpiCard kpi={d.kpis.completion} days={days} hue="violet" icon={ShieldCheck} onClick={() => navigate("/compliance/mine")} />
+          <KpiCard kpi={d.kpis.on_time} days={days} hue="emerald" icon={CheckCircle2} />
+          <KpiCard kpi={d.kpis.overdue} days={days} hue="amber" icon={AlertTriangle} onClick={() => navigate("/compliance/mine")} />
+          <KpiCard kpi={d.kpis.due_soon} days={days} hue="sky" icon={CalendarClock} onClick={() => navigate("/compliance/mine")} />
+        </KpiGrid>
+      )),
+    },
+    {
+      id: "pipeline",
+      title: "Reviews and resolution",
+      kicker: "Headline",
+      span: 2,
+      gridHeading: <AreaHeading title="Reviews and resolution" description="How fast evidence is reviewed and work is finished, and who is non-compliant" icon={ListChecks} hue="indigo" />,
+      node: kpiBlock((d) => (
+        <KpiGrid>
+          <KpiCard kpi={d.kpis.review_queue} days={days} hue="indigo" icon={ListChecks} onClick={can("submission", "approve") ? () => navigate("/compliance/reviews") : undefined} />
+          <KpiCard kpi={d.kpis.review_turnaround} days={days} hue="cyan" icon={Timer} />
+          <KpiCard kpi={d.kpis.time_to_complete} days={days} hue="teal" icon={Hourglass} />
+          <KpiCard kpi={d.kpis.non_compliant} days={days} hue="pink" icon={ShieldAlert} onClick={can("report", "view") ? () => navigate("/compliance/scoreboard") : undefined} />
+        </KpiGrid>
+      )),
+    },
+    {
+      id: "completions",
+      title: "Completions over time",
+      kicker: "Trend",
+      span: 2,
+      gridHeading: <AreaHeading title="Trends and breakdowns" description="How completions move, how late the late items are, and who is behind" icon={ShieldCheck} hue="violet" />,
+      node: panelOf(
+        state,
+        (d) => (
+          <Card className="h-full">
+            <CardHeader
+              title="Completions over time"
+              description={`Required items completed per ${d.completions.daily ? "day" : "7-day block"}: ${d.completions.total} in the last ${days} days, ${d.completions.previous_total} in the ${days} before`}
+            />
+            <CountColumnChart points={countTrendPoints(d.completions.points, d.completions.daily, d.period)} name={`Last ${days} days`} previousName={`Previous ${days} days`} />
+          </Card>
+        ),
+        true
       ),
     },
+    { id: "aging", title: "Overdue, by age", kicker: "Overdue", node: panelOf(state, (d) => <AgingPanel d={d} />, true) },
+    { id: "breakdown", title: "Where compliance stands", kicker: "Breakdown", node: panelOf(state, (d) => <BreakdownPanel d={d} days={days} />, true) },
     {
-      id: "trend",
-      title: "Completions, last 30 days",
-      kicker: "Trend",
-      node: panel((d) => (
-        <Card className="h-full">
-          <CardHeader title="Completions" description="Required items completed per day, last 30 days" />
-          <DailyTrend data={d.trend} />
-        </Card>
-      )),
+      id: "overdue-items",
+      title: "Overdue items",
+      kicker: "Act",
+      gridHeading: <AreaHeading title="Where to act" description="The items and people behind the numbers" icon={AlertTriangle} hue="pink" />,
+      node: panelOf(
+        state,
+        (d) => (
+          <Card className="h-full">
+            <CardHeader title="Most overdue items" description="Highest priority first, then longest overdue" />
+            {d.overdue_items.length === 0 ? (
+              <EmptyState icon={CheckCircle2} title="Nothing is overdue" compact />
+            ) : (
+              <>
+                <ActionList>
+                  {d.overdue_items.map((o) => (
+                    <ActionRow
+                      key={o.obligation_id}
+                      leading={<Avatar name={o.user.name} size={28} />}
+                      title={o.compliance}
+                      sub={o.user.name}
+                      right={
+                        <>
+                          <PriorityLabel priority={o.priority as Priority} />
+                          <span className={o.days_overdue > 30 ? "text-crit font-semibold" : o.days_overdue > 7 ? "text-warn font-semibold" : "text-ink2"}>{o.days_overdue < 1 ? "<1" : o.days_overdue} d late</span>
+                        </>
+                      }
+                      to={`/compliance/obligations/${o.obligation_id}`}
+                    />
+                  ))}
+                </ActionList>
+                {d.overdue_total > d.overdue_items.length && <p className="text-[12px] text-ink3 mt-3">Showing {d.overdue_items.length} of {d.overdue_total} overdue items.</p>}
+                <SeeAll to="/compliance/mine">All compliance items</SeeAll>
+              </>
+            )}
+          </Card>
+        ),
+        true
+      ),
     },
-    { id: "groups", title: "By department, team and category", kicker: "Breakdown", node: panel((d) => <GroupsPanel data={d} />) },
+    { id: "coming-up", title: "Due soon, reviews and escalations", kicker: "Act", node: panelOf(state, (d) => <ComingUpPanel d={d} />, true) },
     {
-      id: "upcoming",
-      title: "Upcoming deadlines",
-      kicker: "Next 14 days",
-      node: panel((d) => (
-        <Card className="h-full">
-          <CardHeader title="Upcoming deadlines" description="Open required items due in the next 14 days" />
-          {d.upcoming.length === 0 ? (
-            <EmptyState icon={CheckCircle2} title="Nothing due soon" description="No open items fall due in the next two weeks." compact />
-          ) : (
-            <ul className="divide-y divide-line-soft">
-              {d.upcoming.map((u) => (
-                <li key={u.obligation_id} className="py-2.5 first:pt-0 last:pb-0">
-                  <Link to={`/compliance/obligations/${u.obligation_id}`} className="flex items-center gap-3 group">
-                    <Avatar name={u.user.name} size={26} />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold text-ink truncate group-hover:text-accent">{u.compliance}</div>
-                      <div className="text-xs text-ink2 truncate">{u.user.name}</div>
-                    </div>
-                    <DueLabel iso={u.due_at} />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      )),
-    },
-    {
-      id: "attention",
-      title: "People who need attention",
-      kicker: "Attention",
-      node: panel((d) => (
-        <Card className="h-full">
-          <CardHeader
-            title="People who need attention"
-            description="Overdue or non-compliant items"
-            actions={can("report", "view") ? <Link to="/compliance/scoreboard" className="text-[13px] text-accent hover:underline">Scoreboard</Link> : undefined}
-          />
-          {d.attention.length === 0 ? (
-            <EmptyState icon={ShieldCheck} title="Everyone is on track" description="Nobody has overdue or non-compliant items." compact />
-          ) : (
-            <ul className="divide-y divide-line-soft">
-              {d.attention.map((p) => (
-                <li key={p.email} className="py-2.5 first:pt-0 last:pb-0 flex items-center gap-3">
-                  <PersonCell person={{ email: p.email, name: p.name, title: "", department: null }} size={28} />
-                  <span className="ml-auto flex items-center gap-3 text-[13px] tabular">
-                    {p.non_compliant > 0 && <span className="text-crit font-semibold">{p.non_compliant} non-compliant</span>}
-                    {p.overdue > 0 && <span className="text-warn font-semibold">{p.overdue} overdue</span>}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      )),
-    },
-    {
-      id: "reviews",
-      title: "Evidence awaiting review",
-      kicker: "Reviews",
-      node: panel((d) => (
-        <Card className="h-full">
-          <CardHeader
-            title="Evidence awaiting review"
-            description={d.review_queue.total ? `${d.review_queue.total} waiting for you` : "Submissions you can approve or reject"}
-            actions={d.review_queue.total ? <Link to="/compliance/reviews" className="inline-flex items-center gap-1 text-[13px] text-accent hover:underline">Open queue <ArrowRight size={13} /></Link> : undefined}
-          />
-          {d.review_queue.items.length === 0 ? (
-            <EmptyState icon={CheckCircle2} title="Nothing is waiting for you" compact />
-          ) : (
-            <ul className="divide-y divide-line-soft">
-              {d.review_queue.items.map((o) => (
-                <li key={o.id} className="py-2.5 first:pt-0 last:pb-0">
-                  <Link to={`/compliance/obligations/${o.id}`} className="flex items-center gap-3 group">
-                    <PersonCell person={o.user} size={26} />
-                    <span className="ml-auto text-[13px] text-ink2 truncate max-w-[45%] group-hover:text-accent">{o.compliance.name}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      )),
-    },
-    {
-      id: "escalations",
-      title: "Recent escalations",
-      kicker: "Last 7 days",
-      node: panel((d) => (
-        <Card className="h-full">
-          <CardHeader title="Recent escalations" description="What the rules did in the last 7 days" />
-          {d.escalations.length === 0 ? (
-            <EmptyState icon={Siren} title="No escalations" description="Reminders and escalations will be listed here as they fire." compact />
-          ) : (
-            <ul className="divide-y divide-line-soft">
-              {d.escalations.map((e, i) => (
-                <li key={`${e.obligation_id}-${e.rule}-${i}`} className="py-2.5 first:pt-0 last:pb-0">
-                  <Link to={`/compliance/obligations/${e.obligation_id}`} className="block group">
-                    <div className="text-sm text-ink group-hover:text-accent">
-                      <span className="font-semibold">{e.user}</span> · {e.compliance}
-                    </div>
-                    <div className="text-xs text-ink2">
-                      {ESCALATION_TEXT[e.action] ?? e.action} · {fmtDateTime(e.fired_at)}
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      )),
+      id: "defaulters",
+      title: "Repeat defaulters",
+      kicker: "People",
+      span: 2,
+      node: panelOf(state, (d) => {
+        const k = d.kpis.repeat_defaulters;
+        return (
+          <Card className="h-full">
+            <CardHeader
+              title="Who keeps missing things"
+              description={`People ranked by incidents in the last ${days} days (late, overdue, non-compliant or flagged, weighted by priority). 3+ incidents makes a repeat defaulter.`}
+              actions={k.value != null ? <Label tone={k.value ? "crit" : "good"}>{k.value} repeat {k.value === 1 ? "defaulter" : "defaulters"}</Label> : undefined}
+            />
+            {k.value == null ? (
+              <EmptyState icon={ShieldAlert} title="The scoreboard is not available to you" description="Ask a compliance administrator for report access." compact />
+            ) : d.defaulters.length === 0 ? (
+              <EmptyState icon={ShieldCheck} title="Nobody has incidents in this period" compact />
+            ) : (
+              <>
+                <ActionList>
+                  {d.defaulters.map((p) => (
+                    <ActionRow
+                      key={p.email}
+                      leading={<Avatar name={p.name} size={28} />}
+                      title={
+                        <span className="flex items-center gap-2">
+                          <span className="truncate">{p.name}</span>
+                          {p.repeat && <Label tone="crit" size="sm">Repeat</Label>}
+                        </span>
+                      }
+                      sub={p.department ?? "No department"}
+                      right={
+                        <>
+                          {p.non_compliant > 0 && <span className="text-crit font-semibold">{p.non_compliant} non-compliant</span>}
+                          {p.overdue > 0 && <span className="text-warn font-semibold">{p.overdue} overdue</span>}
+                          {p.late > 0 && <span className="text-ink2">{p.late} late</span>}
+                          <span className="text-ink3">{p.incidents} {p.incidents === 1 ? "incident" : "incidents"}</span>
+                        </>
+                      }
+                      to="/compliance/scoreboard"
+                    />
+                  ))}
+                </ActionList>
+                <SeeAll to="/compliance/scoreboard">Open the scoreboard</SeeAll>
+              </>
+            )}
+          </Card>
+        );
+      }),
     },
   ];
 }
 
 export function ComplianceDashboard() {
   const { can, me } = useCompliance();
-  const { data, error, loading, reload } = useApi<DashboardData>(can("dashboard", "view") ? "/compliance/dashboard" : null);
-  const blocks = useBlocks(data, error, reload, loading);
+  const [days, setDays] = usePeriod();
+  const allowed = can("dashboard", "view");
+  const state = useDashboard<ComplianceDashboardData>("compliance", days, allowed);
+  const blocks = useBlocks(state, days);
   const firstName = me?.user?.name.split(" ")[0] ?? "";
-  const scoped = useMemo(() => {
-    const perms = me?.permissions.submission?.view ?? [];
-    if (perms.includes("org")) return "across the whole organization";
-    if (perms.some((s) => s === "subtree" || s === "direct_reports" || s === "team")) return "for your team";
-    return "for you";
-  }, [me]);
+  const perms = me?.permissions.submission?.view ?? [];
+  const scoped = perms.includes("org") || me?.is_super ? "across the whole organization" : perms.some((s) => s === "subtree" || s === "direct_reports" || s === "team") ? "for your team" : "for you";
 
-  if (me && !can("dashboard", "view")) {
+  if (me && !allowed) {
     return (
       <>
         <PageHeader title="Compliance" />
@@ -320,18 +387,20 @@ export function ComplianceDashboard() {
 
   return (
     <div>
-      <PageHeader
-        title="Compliance overview"
+      <DashboardHeader
+        title="General compliance"
         description={`${firstName ? `${firstName}, here` : "Here"} is where compliance stands ${scoped}.`}
+        days={days}
+        onDays={setDays}
+        asOf={state.data?.as_of}
+        loading={state.loading}
+        onRefresh={state.reload}
         actions={
-          <>
-            {can("compliance", "create") && (
-              <Link to="/compliance/library/new">
-                <Button variant="primary">New compliance</Button>
-              </Link>
-            )}
-            <IconButton icon={RefreshCw} label="Refresh data" variant="secondary" onClick={reload} />
-          </>
+          can("compliance", "create") && (
+            <Link to="/compliance/library/new">
+              <Button variant="primary">New compliance</Button>
+            </Link>
+          )
         }
       />
       <BlockDeck blocks={blocks} />

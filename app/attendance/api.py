@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
+from datetime import date
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.attendance import analytics
@@ -57,18 +59,47 @@ def dashboard(db: Session = Depends(get_db), _user: OrgUser = Depends(get_curren
         "summary": analytics.overall_summary(db),
         "trend": analytics.attendance_trend(db),
         "by_department": analytics.department_breakdown(db),
+        "insights": analytics.insights(db),
     }
 
 
 @router.get("")
 def list_employees(
-    company: str | None = None,
-    department: str | None = None,
+    # Repeat a param (?department=A&department=B) or comma-separate it for "any of".
+    company: list[str] | None = Query(default=None),
+    department: list[str] | None = Query(default=None),
     search: str | None = None,
+    days_min: int | None = Query(default=None, ge=0),
+    days_max: int | None = Query(default=None, ge=0),
+    last_seen_from: date | None = None,
+    last_seen_to: date | None = None,
+    not_seen_days: int | None = Query(default=None, ge=1, le=3650),
+    present_latest: bool | None = None,
+    rate_min: float | None = Query(default=None, ge=0, le=1),
+    rate_max: float | None = Query(default=None, ge=0, le=1),
+    sort: str | None = Query(default=None, pattern="^(name|company|department|days|last_seen|rate)$"),
+    dir: str = Query(default="asc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
     _user: OrgUser = Depends(get_current_user),
 ):
-    return {"items": analytics.employee_list(db, company, department, search)}
+    return {
+        "items": analytics.employee_list(
+            db,
+            company,
+            department,
+            search,
+            days_min=days_min,
+            days_max=days_max,
+            last_seen_from=last_seen_from,
+            last_seen_to=last_seen_to,
+            not_seen_days=not_seen_days,
+            present_latest=present_latest,
+            rate_min=rate_min,
+            rate_max=rate_max,
+            sort=sort,
+            direction=dir,
+        )
+    }
 
 
 @router.get("/{emp_code}")

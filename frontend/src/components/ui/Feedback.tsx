@@ -86,7 +86,7 @@ export function ErrorState({ title = "Something went wrong", message, onRetry, c
 }
 
 const BANNER = {
-  info: { cls: "bg-accent-soft text-ink", icon: Info, iconCls: "text-accent" },
+  info: { cls: "bg-info-bg text-ink", icon: Info, iconCls: "text-info" },
   good: { cls: "bg-good-bg text-ink", icon: CheckCircle2, iconCls: "text-good" },
   warn: { cls: "bg-warn-bg text-ink", icon: AlertTriangle, iconCls: "text-warn" },
   crit: { cls: "bg-crit-bg text-ink", icon: XCircle, iconCls: "text-crit" },
@@ -112,7 +112,7 @@ export function Banner({
   const s = BANNER[tone];
   const Icon = icon ?? s.icon;
   return (
-    <div role={tone === "crit" ? "alert" : "status"} className={clsx("flex items-start gap-3 rounded-lg border px-4 py-3 text-sm", s.cls, className)} style={{ borderColor: `color-mix(in srgb, var(--${tone === "info" ? "accent" : tone}) 35%, transparent)` }}>
+    <div role={tone === "crit" ? "alert" : "status"} className={clsx("flex items-start gap-3 rounded-lg border px-4 py-3 text-sm", s.cls, className)} style={{ borderColor: `color-mix(in srgb, var(--${tone}) 35%, transparent)` }}>
       <Icon size={16} className={clsx("mt-0.5 flex-none", s.iconCls)} aria-hidden />
       <div className="flex-1 min-w-0">
         {title && <p className="font-semibold">{title}</p>}

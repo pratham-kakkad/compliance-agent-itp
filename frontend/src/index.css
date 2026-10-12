@@ -2,76 +2,163 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens — GitHub Primer / Material 3 inspired. Light on :root, dark on html.dark. */
+/* Design tokens. Surfaces are frosted glass over a soft multi-colour backdrop, in both themes.
+   COLOUR RULE: the interface is multi-coloured (indigo, violet, sky, teal, pink, amber, emerald, cyan) so each
+   area has its own identity, and RED IS RESERVED for what needs attention: critical / overdue / non-compliant
+   status, destructive actions, the notification badge, and the Encop logo itself. Primary actions are indigo.
+   Status colours: --good emerald, --warn amber, --crit red, --info sky (in-progress states never read as failures).
+   Charts draw from --chart-1..6 (never red unless the value is itself critical). Opaque --surface is kept for
+   overlays and inputs; cards use the --glass tokens. Light on :root (the default), dark on html.dark. */
 :root {
-  --bg: #f6f8fa;
+  --bg: #eef1fa;
   --bg-sidebar: #ffffff;
   --surface: #ffffff;
-  --surface-2: #f6f8fa;
-  --surface-3: #eff2f5;
-  --border: #d1d9e0;
-  --border-soft: #e6eaef;
-  --border-strong: #afb8c1;
-  --text: #1f2328;
-  --text-soft: #59636e;
-  --text-faint: #818b98;
-  --accent: #1346a8;
-  --accent-emphasis: #1346a8;
-  --accent-emphasis-hover: #0f3a8c;
-  --accent-soft: #e4ecfb;
-  --accent-strong: #0b2a66;
-  --good: #1a7f37;
-  --good-bg: #dafbe1;
-  --warn: #9a6700;
-  --warn-bg: #fff8c5;
-  --crit: #d1242f;
-  --crit-bg: #ffebe9;
-  --neutral: #59636e;
-  --neutral-bg: #eff2f5;
-  --focus: #1346a8;
-  --scrim: rgba(31, 35, 40, 0.45);
-  --shadow-xs: 0 1px 0 rgba(31, 35, 40, 0.04);
-  --shadow-sm: 0 1px 3px rgba(31, 35, 40, 0.08), 0 1px 0 rgba(31, 35, 40, 0.04);
-  --shadow-md: 0 8px 24px rgba(140, 149, 159, 0.2);
-  --shadow-lg: 0 12px 28px rgba(140, 149, 159, 0.3);
-  --tooltip-bg: #1f2328;
+  --surface-2: #f3f4fb;
+  --surface-3: #e8eaf5;
+  --border: #d8dbec;
+  --border-soft: #e5e7f3;
+  --border-strong: #b7bbd4;
+  --text: #14151f;
+  --text-soft: #4d5066;
+  --text-faint: #666a80;
+  --accent: #4f46e5;
+  --accent-emphasis: #4f46e5;
+  --accent-emphasis-hover: #4338ca;
+  --accent-soft: #ecebfd;
+  --accent-strong: #3730a3;
+  --info: #0369a1;
+  --info-bg: #e0f2fe;
+  --series: #4f46e5;
+  --series-a: #6366f1;
+  --series-b: #06b6d4;
+  --chart-1: #6366f1;
+  --chart-2: #06b6d4;
+  --chart-3: #10b981;
+  --chart-4: #f59e0b;
+  --chart-5: #ec4899;
+  --chart-6: #8b5cf6;
+  --good: #047857;
+  --good-bg: #d9f7ea;
+  --warn: #9a5b00;
+  --warn-bg: #fdf1d3;
+  --crit: #c4141a;
+  --crit-bg: #fdeaea;
+  --neutral: #4d5066;
+  --neutral-bg: #eceef7;
+  --focus: #4f46e5;
+  --scrim: rgba(14, 16, 34, 0.42);
+  --shadow-xs: 0 1px 0 rgba(24, 30, 80, 0.04);
+  --shadow-sm: 0 1px 3px rgba(24, 30, 80, 0.08), 0 1px 0 rgba(24, 30, 80, 0.04);
+  --shadow-md: 0 10px 28px -8px rgba(40, 46, 120, 0.2);
+  --shadow-lg: 0 16px 40px -10px rgba(40, 46, 120, 0.28);
+  --tooltip-bg: #14151f;
   --tooltip-fg: #ffffff;
+  /* glass */
+  --glass: rgba(255, 255, 255, 0.66);
+  --glass-strong: rgba(255, 255, 255, 0.92);
+  --glass-bar: rgba(255, 255, 255, 0.62);
+  --glass-orbit: rgba(255, 255, 255, 0.94);
+  --glass-border: rgba(255, 255, 255, 0.92);
+  --glass-edge: rgba(36, 40, 100, 0.08);
+  --glass-shadow: 0 0 0 1px var(--glass-edge), 0 1px 2px rgba(36, 40, 100, 0.05), 0 16px 36px -16px rgba(50, 56, 130, 0.24);
+  --glass-blur: 18px;
+  /* tinted tiles by status, as r, g, b */
+  --tile-crit: 220, 38, 38;
+  --tile-warn: 217, 119, 6;
+  --tile-good: 5, 150, 105;
+  --tile-info: 2, 132, 199;
+  --tile-neutral: 98, 108, 160;
+  --tile-a: 0.17;
+  --tile-b: 0.04;
+  /* area hues, as r, g, b (600-level, so white icons and tinted text read on light glass) */
+  --hue-indigo: 79, 70, 229;
+  --hue-violet: 124, 58, 237;
+  --hue-sky: 2, 132, 199;
+  --hue-teal: 13, 148, 136;
+  --hue-emerald: 5, 150, 105;
+  --hue-cyan: 8, 145, 178;
+  --hue-pink: 219, 39, 119;
+  --hue-amber: 217, 119, 6;
+  /* backdrop washes */
+  --amb-blue: rgba(99, 102, 241, 0.34);
+  --amb-red: rgba(236, 72, 153, 0.22);
+  --amb-violet: rgba(139, 92, 246, 0.3);
+  --amb-warm: rgba(6, 182, 212, 0.24);
+  --amb-mid: rgba(16, 185, 129, 0.12);
   color-scheme: light;
 }
 
 .dark {
-  --bg: #0d1117;
-  --bg-sidebar: #010409;
-  --surface: #151b23;
-  --surface-2: #212830;
-  --surface-3: #262c36;
-  --border: #3d444d;
-  --border-soft: #2a3038;
-  --border-strong: #57606a;
-  --text: #f0f6fc;
-  --text-soft: #9198a1;
-  --text-faint: #6e7681;
-  --accent: #6c9cf0;
-  --accent-emphasis: #2f63c9;
-  --accent-emphasis-hover: #4a7fe0;
-  --accent-soft: rgba(108, 156, 240, 0.16);
-  --accent-strong: #9dbcf5;
-  --good: #3fb950;
-  --good-bg: rgba(46, 160, 67, 0.15);
-  --warn: #d29922;
-  --warn-bg: rgba(187, 128, 9, 0.15);
-  --crit: #f85149;
-  --crit-bg: rgba(248, 81, 73, 0.15);
-  --neutral: #9198a1;
-  --neutral-bg: rgba(110, 118, 129, 0.2);
-  --focus: #4a7fe0;
-  --scrim: rgba(1, 4, 9, 0.7);
+  --bg: #070812;
+  --bg-sidebar: #0b0c16;
+  --surface: #13141f;
+  --surface-2: #1a1b28;
+  --surface-3: #232435;
+  --border: #2d2f44;
+  --border-soft: #222436;
+  --border-strong: #474a65;
+  --text: #f4f5fb;
+  --text-soft: #a3a7bf;
+  --text-faint: #8387a2;
+  --accent: #818cf8;
+  --accent-emphasis: #4f46e5;
+  --accent-emphasis-hover: #6366f1;
+  --accent-soft: rgba(99, 102, 241, 0.2);
+  --accent-strong: #c7d2fe;
+  --info: #38bdf8;
+  --info-bg: rgba(56, 189, 248, 0.14);
+  --series: #818cf8;
+  --series-a: #818cf8;
+  --series-b: #22d3ee;
+  --chart-1: #818cf8;
+  --chart-2: #22d3ee;
+  --chart-3: #34d399;
+  --chart-4: #fbbf24;
+  --chart-5: #f472b6;
+  --chart-6: #a78bfa;
+  --good: #34d399;
+  --good-bg: rgba(52, 211, 153, 0.14);
+  --warn: #fbbf24;
+  --warn-bg: rgba(251, 191, 36, 0.14);
+  --crit: #ff6b70;
+  --crit-bg: rgba(255, 90, 95, 0.15);
+  --neutral: #a3a7bf;
+  --neutral-bg: rgba(163, 167, 191, 0.15);
+  --focus: #818cf8;
+  --scrim: rgba(2, 3, 10, 0.7);
   --shadow-xs: 0 0 0 transparent;
-  --shadow-sm: 0 1px 0 rgba(1, 4, 9, 0.4);
-  --shadow-md: 0 8px 24px rgba(1, 4, 9, 0.75);
-  --shadow-lg: 0 16px 48px rgba(1, 4, 9, 0.85);
-  --tooltip-bg: #f0f6fc;
-  --tooltip-fg: #1f2328;
+  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 10px 30px -6px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 18px 50px -8px rgba(0, 0, 0, 0.85);
+  --tooltip-bg: #f4f5fb;
+  --tooltip-fg: #14151f;
+  --glass: rgba(27, 28, 46, 0.56);
+  --glass-strong: rgba(24, 25, 40, 0.88);
+  --glass-bar: rgba(10, 11, 24, 0.6);
+  --glass-orbit: rgba(24, 25, 40, 0.9);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-edge: rgba(0, 0, 0, 0.45);
+  --glass-shadow: 0 0 0 1px var(--glass-edge), inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 20px 44px -20px rgba(0, 0, 0, 0.75);
+  --tile-crit: 255, 99, 99;
+  --tile-warn: 251, 191, 36;
+  --tile-good: 52, 211, 153;
+  --tile-info: 56, 189, 248;
+  --tile-neutral: 140, 150, 200;
+  --tile-a: 0.26;
+  --tile-b: 0.06;
+  --hue-indigo: 129, 140, 248;
+  --hue-violet: 167, 139, 250;
+  --hue-sky: 56, 189, 248;
+  --hue-teal: 45, 212, 191;
+  --hue-emerald: 52, 211, 153;
+  --hue-cyan: 34, 211, 238;
+  --hue-pink: 244, 114, 182;
+  --hue-amber: 251, 191, 36;
+  --amb-blue: rgba(79, 70, 229, 0.34);
+  --amb-red: rgba(219, 39, 119, 0.2);
+  --amb-violet: rgba(124, 58, 237, 0.26);
+  --amb-warm: rgba(6, 182, 212, 0.2);
+  --amb-mid: rgba(16, 185, 129, 0.08);
   color-scheme: dark;
 }
 
@@ -136,6 +223,10 @@ body {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(250%); }
 }
+@keyframes bar-sheen {
+  0% { background-position: 160% 0, 0 0; }
+  60%, 100% { background-position: -60% 0, 0 0; }
+}
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -169,6 +260,7 @@ body {
 .mc-tooltip[data-state="closed"] {
   animation: pop-out 100ms cubic-bezier(0.3, 0, 1, 1) forwards;
 }
+.mc-scrim { -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .mc-scrim[data-state="open"] { animation: fade-in 150ms cubic-bezier(0, 0, 0, 1); }
 .mc-scrim[data-state="closed"] { animation: fade-out 150ms cubic-bezier(0.3, 0, 1, 1) forwards; }
 .mc-dialog[data-state="open"] { animation: dialog-in 200ms cubic-bezier(0, 0, 0, 1); }
@@ -179,6 +271,128 @@ body {
 .mc-sheet-left[data-state="closed"] { animation: sheet-out-left 180ms cubic-bezier(0.3, 0, 1, 1) forwards; }
 
 @layer components {
+  /* Frosted panel: translucent, blurred, with a bright hairline edge. */
+  .glass {
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.5);
+    backdrop-filter: blur(var(--glass-blur)) saturate(1.5);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+  .glass-bar {
+    background: var(--glass-bar);
+    -webkit-backdrop-filter: blur(22px) saturate(1.6);
+    backdrop-filter: blur(22px) saturate(1.6);
+  }
+
+  /* Stat tile tinted by tone (set --tile to "r, g, b"): a soft gradient wash, a coloured edge and glow. */
+  .tile {
+    background:
+      linear-gradient(135deg, rgba(var(--tile), var(--tile-a)) 0%, rgba(var(--tile), var(--tile-b)) 72%),
+      var(--glass);
+    border-color: rgba(var(--tile), 0.34);
+    box-shadow: var(--glass-shadow), 0 14px 32px -16px rgba(var(--tile), 0.55);
+  }
+  .tile[data-tone="crit"] { --tile: var(--tile-crit); }
+  .tile[data-tone="warn"] { --tile: var(--tile-warn); }
+  .tile[data-tone="good"] { --tile: var(--tile-good); }
+  .tile[data-tone="accent"] { --tile: var(--tile-info); }
+  .tile[data-tone="neutral"] { --tile: var(--tile-neutral); --tile-a: 0.08; --tile-b: 0.02; border-color: var(--glass-border); box-shadow: var(--glass-shadow); }
+  .tile-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+    color: #fff;
+    background: linear-gradient(145deg, rgba(var(--tile), 1), rgba(var(--tile), 0.7));
+    box-shadow: 0 6px 14px -4px rgba(var(--tile), 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+  .tile[data-tone="neutral"] .tile-chip {
+    background: var(--surface-3);
+    color: var(--text-soft);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  }
+  /* A hue colours the tile by area instead of by status (the value text still carries the status colour). */
+  .tile[data-hue] { --tile-a: 0.2; --tile-b: 0.05; border-color: rgba(var(--tile), 0.34); box-shadow: var(--glass-shadow), 0 14px 32px -16px rgba(var(--tile), 0.55); }
+  .tile[data-hue="indigo"] { --tile: var(--hue-indigo); }
+  .tile[data-hue="violet"] { --tile: var(--hue-violet); }
+  .tile[data-hue="sky"] { --tile: var(--hue-sky); }
+  .tile[data-hue="teal"] { --tile: var(--hue-teal); }
+  .tile[data-hue="emerald"] { --tile: var(--hue-emerald); }
+  .tile[data-hue="cyan"] { --tile: var(--hue-cyan); }
+  .tile[data-hue="pink"] { --tile: var(--hue-pink); }
+  .tile[data-hue="amber"] { --tile: var(--hue-amber); }
+  .tile[data-hue] .tile-chip { background: linear-gradient(145deg, rgba(var(--tile), 1), rgba(var(--tile), 0.7)); color: #fff; box-shadow: 0 6px 14px -4px rgba(var(--tile), 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+  .tile[data-tone="warn"] .tile-chip { color: #3a2300; }
+  .dark .tile[data-tone="good"] .tile-chip { color: #04200e; }
+  .dark .tile[data-tone="neutral"] .tile-chip { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08); }
+
+  /* Pill with a red-to-blue glowing border (view toggles, hero actions). Opaque fill so the border reads cleanly. */
+  .glow-pill {
+    --pill-bg: #ffffff;
+    border: 1px solid transparent;
+    background:
+      linear-gradient(var(--pill-bg), var(--pill-bg)) padding-box,
+      linear-gradient(120deg, #6366f1, #a855f7 55%, #06b6d4) border-box;
+    box-shadow: 0 0 20px -5px rgba(99, 102, 241, 0.55), 0 0 20px -7px rgba(6, 182, 212, 0.45);
+    transition: box-shadow 200ms ease, transform 160ms var(--ease-spring, ease);
+  }
+  .dark .glow-pill { --pill-bg: #14151f; }
+  .glow-pill:hover:not(:disabled) {
+    box-shadow: 0 0 26px -3px rgba(99, 102, 241, 0.75), 0 0 26px -5px rgba(6, 182, 212, 0.6);
+  }
+
+  /* Primary action: indigo with a soft lift and glow (red is kept for what needs attention) */
+  .btn-primary {
+    background: linear-gradient(180deg, #5b55ec 0%, #4338ca 100%);
+    box-shadow: 0 8px 18px -7px rgba(79, 70, 229, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+    transition: box-shadow 180ms ease, filter 180ms ease;
+  }
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+    box-shadow: 0 10px 24px -6px rgba(79, 70, 229, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+
+  /* Area hue: set --hue on any element (and read it as rgb(var(--hue)) / rgba(var(--hue), a)). */
+  .hue-indigo { --hue: var(--hue-indigo); }
+  .hue-violet { --hue: var(--hue-violet); }
+  .hue-sky { --hue: var(--hue-sky); }
+  .hue-teal { --hue: var(--hue-teal); }
+  .hue-emerald { --hue: var(--hue-emerald); }
+  .hue-cyan { --hue: var(--hue-cyan); }
+  .hue-pink { --hue: var(--hue-pink); }
+  .hue-amber { --hue: var(--hue-amber); }
+
+  /* Sidebar: every group has its own colour; a tinted glass pill slides to the active item */
+  .nav-active {
+    background: linear-gradient(90deg, rgba(var(--hue, var(--hue-indigo)), 0.16), rgba(var(--hue, var(--hue-indigo)), 0.03));
+    box-shadow: inset 0 0 0 1px rgba(var(--hue, var(--hue-indigo)), 0.26);
+  }
+  .nav-chip {
+    color: rgb(var(--hue, var(--hue-indigo)));
+    background: rgba(var(--hue, var(--hue-indigo)), 0.12);
+    transition: background 160ms ease, box-shadow 160ms ease, color 160ms ease;
+  }
+  .nav-chip-on {
+    color: #fff;
+    background: linear-gradient(145deg, rgba(var(--hue, var(--hue-indigo)), 1), rgba(var(--hue, var(--hue-indigo)), 0.7));
+    box-shadow: 0 6px 14px -4px rgba(var(--hue, var(--hue-indigo)), 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  }
+
+  /* Progress fills: a tone gradient with a slow moving sheen */
+  .bar-fill {
+    background-image: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.35) 50%, rgba(255, 255, 255, 0) 100%), var(--bar-grad);
+    background-size: 220% 100%, 100% 100%;
+    background-repeat: no-repeat;
+    animation: bar-sheen 2.8s ease-in-out infinite;
+  }
+  .bar-good { --bar-grad: linear-gradient(90deg, #10b981, #06b6d4); }
+  .bar-warn { --bar-grad: linear-gradient(90deg, #f59e0b, #f97316); }
+  .bar-crit { --bar-grad: linear-gradient(90deg, #f43f5e, #dc2626); }
+  .bar-accent { --bar-grad: linear-gradient(90deg, #6366f1, #06b6d4); }
+  .bar-neutral { --bar-grad: linear-gradient(90deg, #94a3b8, #64748b); }
   .skeleton {
     background: linear-gradient(90deg, var(--surface-2) 30%, var(--surface-3) 50%, var(--surface-2) 70%);
     background-size: 300% 100%;

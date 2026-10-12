@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import clsx from "clsx";
 import { toast } from "sonner";
-import { CalendarClock, Check, FileUp, Info, MessageSquareWarning, Play, RotateCcw, Send, ShieldOff, Upload, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, Check, FileUp, Info, MessageSquareWarning, Play, RotateCcw, Send, ShieldOff, Upload, X } from "lucide-react";
 import { api, uploadFile } from "../../lib/api";
 import { useApi } from "../../lib/useApi";
 import { browserTimeZone, fmtBytes, fmtDate, fmtDateTime } from "../../lib/format";
@@ -41,6 +41,8 @@ import {
   useReasonPrompt,
 } from "../../components/compliance/common";
 import { DecisionLine, EvidenceList, latestSubmission, useReviewActions } from "../../components/compliance/evidence";
+import { EmailButton } from "../../components/compliance/email/EmailButton";
+import { CommunicationHistory } from "../../components/compliance/email/CommunicationHistory";
 
 const MAX_FILE_MB = 10;
 const DEFAULT_MAX_TEXT = 5000;
@@ -571,6 +573,7 @@ export function ObligationPage() {
   const { openModal } = useOverlay();
   const { approve, requestChanges } = useReviewActions();
   const [busy, setBusy] = useState<string | null>(null);
+  const [mailTick, setMailTick] = useState(0);
 
   const o = data && data.id === id ? data : null;
   const requirements = o?.instructions?.evidence_requirements ?? [];
@@ -672,16 +675,45 @@ export function ObligationPage() {
         description={o.compliance.category}
         breadcrumbs={crumbs}
         actions={
-          o.can.start ? (
-            <Button
-              variant="primary"
-              leadingIcon={Play}
-              loading={busy === "start"}
-              onClick={() => run("start", () => api.post(`/compliance/obligations/${o.id}/start`), "Started. Take your time.")}
-            >
-              Start working
-            </Button>
-          ) : undefined
+          <>
+            {o.can.start && (
+              <Button
+                variant="primary"
+                leadingIcon={Play}
+                loading={busy === "start"}
+                onClick={() => run("start", () => api.post(`/compliance/obligations/${o.id}/start`), "Started. Take your time.")}
+              >
+                Start working
+              </Button>
+            )}
+            {!mine && o.user && (
+              <>
+                <EmailButton
+                  label="Email"
+                  onDone={() => setMailTick((t) => t + 1)}
+                  target={() => ({
+                    recipients: { obligation_id: o.id },
+                    heading: `Email ${personName}`,
+                    subtitle: `About ${o.compliance.name}. Replies go to you.`,
+                    defaultKind: o.status === "completed" ? "thanks" : "reminder",
+                  })}
+                />
+                {!finished && !informational && (o.overdue || o.non_compliant) && (
+                  <EmailButton
+                    label="Send a warning"
+                    icon={AlertTriangle}
+                    onDone={() => setMailTick((t) => t + 1)}
+                    target={() => ({
+                      recipients: { obligation_id: o.id },
+                      heading: `Send ${personName} a warning`,
+                      subtitle: `About ${o.compliance.name}, which is overdue. Replies go to you.`,
+                      defaultKind: "warning",
+                    })}
+                  />
+                )}
+              </>
+            )}
+          </>
         }
       />
 
@@ -820,6 +852,7 @@ export function ObligationPage() {
               <EmptyState compact title="Nothing has been submitted yet" description={mine ? "Your submissions will be listed here." : `${personName} hasn't submitted anything yet.`} />
             </Card>
           )}
+          {!mine && <CommunicationHistory query={`obligation_id=${o.id}`} refresh={mailTick} description={`E-mails sent to ${personName} about this item.`} />}
         </div>
 
         {/* ---- side */}
