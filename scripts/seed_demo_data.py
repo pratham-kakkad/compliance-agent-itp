@@ -11,6 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import app.compliance.models  # noqa: F401 -- OrgUser.department_id references `departments`; register that table before the first flush
 from app.connectors.mock_teams_provider import MockTeamsProvider
 from app.connectors.sync_service import sync_occurrence
 from app.connectors.teams_provider import MeetingAttendee
